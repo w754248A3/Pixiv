@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Pixiv.MainPage">
+    <StackLayout>
+        <Label x:Name="m_viewText"></Label>
+        <StackLayout x:Name="m_cons">
+            <StackLayout Orientation="Horizontal">
+                <Label Text="Min"></Label>
+                <Entry x:Name="m_min_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="Max"></Label>
+                <Entry x:Name="m_max_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="Tag"></Label>
+                <Entry x:Name="m_tag_value"
+                       WidthRequest="200"
+                       Keyboard="Text"></Entry>
+            </StackLayout>
+            <StackLayout>
+                <Button Text="Start" Clicked="OnStart"></Button>
+            </StackLayout>
+        </StackLayout>
+        <CollectionView x:Name="m_collView">
+            <CollectionView.ItemsLayout>
+                <LinearItemsLayout Orientation="Vertical"
+                                   SnapPointsType="Mandatory"
+                                   SnapPointsAlignment="End" />
+            </CollectionView.ItemsLayout>
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Image Source="{Binding ImageSource}"></Image>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </StackLayout>
+</ContentPage>

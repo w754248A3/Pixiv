@@ -96,12 +96,6 @@ namespace Pixiv
             return new Uri("https://www.pixiv.net/artworks/" + value);
         }
 
-        public static string GetLocalPath(PixivData data)
-        {
-            string[] ss = data.Path.Split(new char[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
-
-            return Path.Combine(ss[0], ss[1], ss[2], ss[ss.Length - 1]);
-        }
     }
 
     static class CreatePixivMHttpClient
@@ -417,66 +411,6 @@ namespace Pixiv
         public void Add(string path)
         {
             Task.Run(() => Load(path));
-        }
-    }
-
-    sealed class MyChannels<T> where T : class
-    {
-        readonly ConcurrentQueue<T> m_queue = new ConcurrentQueue<T>();
-
-        readonly SemaphoreSlim m_write_slim;
-      
-        readonly SemaphoreSlim m_read_slim;
-
-        public MyChannels(int maxCount)
-        {
-            m_write_slim = new SemaphoreSlim(maxCount, maxCount);
-
-            m_read_slim = new SemaphoreSlim(0, maxCount);
-        }
-
-
-        public async Task WriteAsync(T value)
-        {
-            await m_write_slim.WaitAsync().ConfigureAwait(false);
-
-            m_queue.Enqueue(value);
-
-            m_read_slim.Release();
-        }
-
-        T Get()
-        {
-            T value;
-
-            m_queue.TryDequeue(out value);
-
-            m_write_slim.Release();
-
-            return value;
-        }
-
-        public async Task<T> ReadAsync()
-        {
-            await m_read_slim.WaitAsync().ConfigureAwait(false);
-
-            return Get();
-        }
-
-        public bool TryRead(out T value)
-        {
-            if (m_read_slim.Wait(TimeSpan.Zero))
-            {
-                value = Get();
-
-                return true;
-            }
-            else
-            {
-                value = default;
-
-                return false;
-            }
         }
     }
 
@@ -804,11 +738,6 @@ namespace Pixiv
         void InitCollView()
         {
             m_collView.ItemsSource = m_imageSources;
-
-            foreach (var item in Enumerable.Range(0, COLLVIEW_COUNT))
-            {
-                m_imageSources.Add(new Data(Array.Empty<byte>(), string.Empty));
-            }
         }
 
         void OnStart(object sender, EventArgs e)
@@ -839,8 +768,6 @@ namespace Pixiv
             {
                 m_imageSources.Clear();
             }
-
-            //m_imageSources.RemoveAt(0);
 
             m_imageSources.Add(date);
 

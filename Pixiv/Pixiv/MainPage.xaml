@@ -23,11 +23,19 @@
                        WidthRequest="200"
                        Keyboard="Text"></Entry>
             </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="Offset"></Label>
+                <Entry x:Name="m_offset_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
             <StackLayout>
                 <Button Text="Start" Clicked="OnStart"></Button>
             </StackLayout>
         </StackLayout>
-        <CollectionView x:Name="m_collView">
+        <CollectionView x:Name="m_collView"
+                        SelectionMode="Single"
+                        SelectionChanged="OnCollectionViewSelectionChanged">
             <CollectionView.ItemsLayout>
                 <LinearItemsLayout Orientation="Vertical"
                                    SnapPointsType="Mandatory"

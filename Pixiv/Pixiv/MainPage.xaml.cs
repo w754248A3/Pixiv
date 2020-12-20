@@ -1,6 +1,7 @@
 ﻿using LeiKaiFeng.Http;
 using SQLite;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -63,9 +64,9 @@ namespace Pixiv
             return new PixivData(itemId, mark, path, tags);
         }
 
-        public static Uri GetOriginalUri(PixivData data)
+        public static Uri GetOriginalUri(string path)
         {
-            return new Uri(ORIGINAL_BASE_PATH + data.Path);
+            return new Uri(ORIGINAL_BASE_PATH + path);
         }
 
         static string WithOut(string s)
@@ -103,23 +104,23 @@ namespace Pixiv
         }
     }
 
-    public static class CreatePixivMHttpClient
+    static class CreatePixivMHttpClient
     {
-        static async Task<KeyValuePair<Socket, Stream>> Create(Uri uri)
+        const string HOST = "www.pixivision.net";
+
+        static Task CreateConnectAsync(Socket socket, Uri uri)
         {
-            const string HOST = "www.pixivision.net";
+            return socket.ConnectAsync(HOST, 443);
+        }
 
-            Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        static async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
+        {
 
-            await socket.ConnectAsync(HOST, 443).ConfigureAwait(false);
-
-            SslStream sslStream = new SslStream(new NetworkStream(socket, true), false);
+            SslStream sslStream = new SslStream(stream, false);
 
             await sslStream.AuthenticateAsClientAsync(HOST).ConfigureAwait(false);
 
-
-            return new KeyValuePair<Socket, Stream>(socket, sslStream);
-
+            return sslStream;
         }
 
 
@@ -127,7 +128,9 @@ namespace Pixiv
         {
             return new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = Create,
+                ConnectCallback = CreateConnectAsync,
+
+                AuthenticateCallback = CreateAuthenticateAsync,
 
                 MaxStreamPoolCount = maxStreamPoolCount
             });
@@ -165,7 +168,7 @@ namespace Pixiv
         public string Tags { get; set; }
     }
 
-    public static class DataBase
+    static class DataBase
     {
         const int START_VALUE = 66000201;
 
@@ -186,17 +189,22 @@ namespace Pixiv
 
         static SemaphoreSlim s_slim;
 
+        static string s_basePath;
+
         static string DatabasePath()
         {
-            var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-
-            return Path.Combine(basePath, DatabaseFilename);
+            
+            return Path.Combine(s_basePath, DatabaseFilename);
 
         }
 
 
-        public static void Init()
+        public static void Init(string basePath)
         {
+            s_basePath = basePath;
+
+            Directory.CreateDirectory(s_basePath);
+
             s_slim = new SemaphoreSlim(1, 1);
 
             s_connection = new SQLiteConnection(DatabasePath(), Flags);
@@ -234,7 +242,12 @@ namespace Pixiv
             return s_connection.Query<PixivData>($"SELECT * FROM {nameof(PixivData)} WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark} AND {nameof(PixivData.Tags)} LIKE '%{tag}%' ORDER BY {nameof(PixivData.Mark)} DESC LIMIT {count} OFFSET {offset}");
         }
 
-        static async Task<T> F<T>(Func<T> func)
+        static Task<T> F<T>(Func<T> func)
+        {
+            return Task.Run(() => FF(func));
+        }
+
+        static async Task<T> FF<T>(Func<T> func)
         {
 
             try
@@ -278,7 +291,7 @@ namespace Pixiv
 
     static class Crawling
     {
-        static async Task Start(MHttpClient httpClient, Func<int> func)
+        static async Task Start(MHttpClient httpClient, Func<int> func, int count)
         {
             var list = new List<PixivData>();
             while (true)
@@ -294,15 +307,7 @@ namespace Pixiv
 
                     PixivData data = CreatePixivData.Create(itemId, html);
 
-                    list.Add(data);
-
-
-                    if (list.Count >= 10)
-                    {
-                        await DataBase.Add(list);
-
-                        list = new List<PixivData>();
-                    }
+                    list.Add(data);        
                 }
                 catch (MHttpClientException)
                 {
@@ -313,6 +318,12 @@ namespace Pixiv
 
                 }
 
+                if (list.Count >= count)
+                {
+                    await DataBase.Add(list).ConfigureAwait(false);
+
+                    list.Clear();
+                }
             }
         }
 
@@ -324,7 +335,7 @@ namespace Pixiv
                 var list = new List<Task>();
                 foreach (var item in Enumerable.Range(0, count))
                 {
-                    list.Add(Start(httpClient, func));
+                    list.Add(Start(httpClient, func, count));
                 }
 
 
@@ -334,146 +345,233 @@ namespace Pixiv
 
                     list.RemoveAll((v) => object.ReferenceEquals(t, v));
 
-                    list.Add(Start(httpClient, func));
+                    list.Add(Start(httpClient, func, count));
                 }
 
             });
         }
 
-        public static async void Start()
+        public static async void Start(int count)
         {
-            const int COUNT = 32;
 
-            int n = await DataBase.GetMaxItemId();
+            int n = await DataBase.GetMaxItemId().ConfigureAwait(false);
 
             Func<int> func = () => Interlocked.Increment(ref n);
 
-            MHttpClient httpClient = CreatePixivMHttpClient.Create(COUNT);
+            MHttpClient httpClient = CreatePixivMHttpClient.Create(count);
 
-            Crawling.Start(COUNT, httpClient, func);
+            Crawling.Start(count, httpClient, func);
         }
     }
 
-    static class EnumImage
+    sealed class LoadBigImg
     {
+        readonly MHttpClient m_client;
 
-
-        static async Task<KeyValuePair<byte[], string>> CreateItem(Task<byte[]> task, string path)
+        readonly string m_basePath;
+        public LoadBigImg(string basePath)
         {
-            byte[] buffer = await task.ConfigureAwait(false);
-
-            return new KeyValuePair<byte[], string>(buffer, path);
-
-        }
-
-        static async Task<KeyValuePair<byte[], string>> CreateBufferAsync(Task task)
-        {
-            await task.ConfigureAwait(false);
-
-            throw new TaskCanceledException();
-        }
-
-        static async Task<byte[]> GetImgAsync(MHttpClient client, PixivData data)
-        {
-            byte[] buffer = await ImgLocalBuffer.GetBufferImage(data).ConfigureAwait(false);
-
-            if(buffer is null)
+            m_client = new MHttpClient(new MHttpClientHandler
             {
-                Uri uri = CreatePixivData.GetOriginalUri(data);
+                MaxResponseSize = 1024 * 1024 * 50
+            });
+
+            Directory.CreateDirectory(basePath);
+
+            m_basePath = basePath;
+        }
+
+        async Task SaveImage(byte[] buffer)
+        {
+            string name = Path.Combine(m_basePath, Path.GetRandomFileName() + ".png");
+
+            using (var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+            {
+
+                await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+            }
+        }
+
+        async void Load(string path)
+        {
+            try
+            {
+
+                Uri uri = CreatePixivData.GetOriginalUri(path);
 
 
                 Uri referer = new Uri("https://www.pixiv.net/");
 
 
-                buffer = await client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
+                byte[] buffer = await m_client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
 
-                Task t = ImgLocalBuffer.WriteImg(data, buffer);
+                await SaveImage(buffer).ConfigureAwait(false);
+            }
+            catch
+            {
+
+            }
+
+        }
+
+        public void Add(string path)
+        {
+            Task.Run(() => Load(path));
+        }
+    }
+
+    sealed class MyChannels<T> where T : class
+    {
+        readonly ConcurrentQueue<T> m_queue = new ConcurrentQueue<T>();
+
+        readonly SemaphoreSlim m_write_slim;
+      
+        readonly SemaphoreSlim m_read_slim;
+
+        public MyChannels(int maxCount)
+        {
+            m_write_slim = new SemaphoreSlim(maxCount, maxCount);
+
+            m_read_slim = new SemaphoreSlim(0, maxCount);
+        }
 
 
-                return buffer;
+        public async Task WriteAsync(T value)
+        {
+            await m_write_slim.WaitAsync().ConfigureAwait(false);
+
+            m_queue.Enqueue(value);
+
+            m_read_slim.Release();
+        }
+
+        T Get()
+        {
+            T value;
+
+            m_queue.TryDequeue(out value);
+
+            m_write_slim.Release();
+
+            return value;
+        }
+
+        public async Task<T> ReadAsync()
+        {
+            await m_read_slim.WaitAsync().ConfigureAwait(false);
+
+            return Get();
+        }
+
+        public bool TryRead(out T value)
+        {
+            if (m_read_slim.Wait(TimeSpan.Zero))
+            {
+                value = Get();
+
+                return true;
             }
             else
             {
-                return buffer;
+                value = default;
+
+                return false;
             }
         }
+    }
 
-        static IEnumerable<Task<KeyValuePair<byte[], string>>> Create(Func<int, int, Task<List<PixivData>>> func)
+    static class EnumImage
+    {
+        
+
+
+        static Task<byte[]> GetImageFromWebAsync(MHttpClient client, PixivData data)
         {
-            MHttpClient client = new MHttpClient();
+            Uri uri = CreatePixivData.GetSmallUri(data);
+
 
             Uri referer = new Uri("https://www.pixiv.net/");
 
-            int offset = 0;
 
-            int count = 200;
+            return client.GetByteArrayAsync(uri, referer);
 
+        }
+
+        static async void CreateLoadImg(MHttpClient client, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
+        {
             while (true)
             {
-                var task = func(offset, count);
-
-                while (!task.IsCompleted)
+                try
                 {
-                    yield return CreateBufferAsync(task);
+
+                    var data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
+
+                    byte[] buffer = await GetImageFromWebAsync(client, data).ConfigureAwait(false);
+
+
+                    await imgs.WriteAsync(Task.FromResult(new KeyValuePair<byte[], string>(buffer, data.Path))).ConfigureAwait(false);
+
+                }
+                catch (Exception e)
+                {
+
+                    await imgs.WriteAsync(Task.FromException<KeyValuePair<byte[], string>>(e)).ConfigureAwait(false);
                 }
 
-                if(task.Status != TaskStatus.RanToCompletion)
-                {
-                    yield break;
-                }
-
-                var list = task.Result;
-
-                if (list.Count == 0)
-                {
-                    yield break;
-                }
-
-                foreach (var item in list)
-                {
-                    
-                    string path = item.Path;
-                    var t = GetImgAsync(client, item);
-                    yield return CreateItem(t, path);
-                }
-
-
-                offset += count;
             }
+        }
 
+        static async void CreateLoadData(MyChannels<Task<PixivData>> coll, Func<Task<List<PixivData>>> func)
+        {
+            try
+            {
+
+                while (true)
+                {
+
+                    var list = await func().ConfigureAwait(false);
+
+                    if (list.Count == 0)
+                    {
+                        return;
+                    }
+
+                    foreach (var item in list)
+                    {
+                        await coll.WriteAsync(Task.FromResult(item)).ConfigureAwait(false);
+                    }
+
+                }
+            }
+            catch(Exception e)
+            {
+                await coll.WriteAsync(Task.FromException<PixivData>(e)).ConfigureAwait(false);
+            }
 
         }
 
 
-        static IEnumerable<Task<KeyValuePair<byte[], string>>> Pl(IEnumerable<Task<KeyValuePair<byte[], string>>> e, int count)
+        public static MyChannels<Task<KeyValuePair<byte[], string>>> Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount)
         {
-            var queue = new Queue<Task<KeyValuePair<byte[], string>>>(count);
 
-            foreach (var item in e)
+            var datas = new MyChannels<Task<PixivData>>(dataLoadCount);
+
+            var imgs = new MyChannels<Task<KeyValuePair<byte[], string>>>(imgLoadCount);
+
+            var mhttpclient = new MHttpClient(new MHttpClientHandler
             {
-                queue.Enqueue(item);
+                MaxStreamPoolCount = imgLoadCount * 2
+            });
 
-                if (queue.Count >= count)
-                {
-                    yield return queue.Dequeue();
-                }
 
+            Task.Run(() => CreateLoadData(datas, func));
+
+            foreach (var item in Enumerable.Range(0, imgLoadCount)) 
+            {
+                Task.Run(() => CreateLoadImg(mhttpclient, datas, imgs));
             }
 
-
-            while (queue.Count != 0)
-            {
-                yield return queue.Dequeue();
-            }
-        }
-
-
-        public static IEnumerable<Task<KeyValuePair<byte[], string>>> Create(Func<int, int, Task<List<PixivData>>> func, int count)
-        {
-            var e = Create(func);
-
-
-            return Pl(e, count);
+            return imgs;
         }
     }
 
@@ -498,59 +596,137 @@ namespace Pixiv
 
     }
 
-    static class ImgLocalBuffer
+    static class InputData
     {
-        static readonly string s_path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ImgBuffer");
-
-
-        public static async Task<byte[]> GetBufferImage(PixivData data)
+        public static int Min
         {
-           
+            get => Preferences.Get(nameof(Min), 0);
+
+            set=> Preferences.Set(nameof(Min), value);
+        }
+
+        public static int Max
+        {
+            get => Preferences.Get(nameof(Max), 10000);
+
+            set => Preferences.Set(nameof(Max), value);
+        }
+
+        public static string Tag
+        {
+            get => Preferences.Get(nameof(Tag), "");
+
+            set => Preferences.Set(nameof(Tag), value);
+        }
+
+        public static int Offset
+        {
+            get => Preferences.Get(nameof(Offset), 0);
+
+            set => Preferences.Set(nameof(Offset), value);
+        }
+
+        public static int Count
+        {
+            get => Preferences.Get(nameof(Count), 0);
+
+            set => Preferences.Set(nameof(Count), value);
+        }
+
+        static int F(string s)
+        {
+            if (int.TryParse(s, out int n) && n >= 0)
+            {
+                return n;
+            }
+            else
+            {
+                throw new FormatException();
+            }
+
+        }
+
+        public static bool Create(string min, string max, string tag, string offset, string count)
+        {
             try
             {
-                string path = Path.Combine(s_path, CreatePixivData.GetLocalPath(data));
+                Min = F(min);
 
-                using (FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan | FileOptions.Asynchronous))
+                Max = F(max);
+
+                Offset = F(offset);
+
+                Count = F(count);
+
+
+                Tag = tag ?? "";
+
+                return true;
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+        }
+
+        public static Func<Task<List<PixivData>>> CreateSelectFunc()
+        {
+            string tag = Tag;
+
+            int min = Min;
+
+            int max = Max;
+
+            int offset = Offset;
+
+            int count = Count;
+
+
+
+            return () =>
+            {
+                int n = offset;
+
+                Task<List<PixivData>> task;
+                if (string.IsNullOrWhiteSpace(tag))
                 {
-                    byte[] buffer = new byte[fileStream.Length];
+                    task = DataBase.Select(min, max, offset, count);
 
-                    await fileStream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
-
-                    return buffer;
                 }
-            }
-            catch (Exception e)
-            {
-                return null;
-            }
-        } 
-
-
-        public static async Task WriteImg(PixivData data, byte[] buffer)
-        {
-            try
-            {
-                
-                string path = Path.Combine(s_path, CreatePixivData.GetLocalPath(data));
-
-                using (FileStream fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous)) 
+                else
                 {
-                    await fileStream.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
-                }     
-            }
-            catch(Exception e)
-            {
+                    task = DataBase.Select(min, max, tag, offset, count);
 
-            }
+                }
+
+                offset += count;
+
+                Offset = n;
+
+                return task;
+
+            };
         }
     }
 
     public partial class MainPage : ContentPage
     {
-        const int COLLVIEW_COUNT = 16;
+        const int COLLVIEW_COUNT = 32;
+
+        const int SELCT_COUNT = 200;
+
+        const int CRAWLING_COUNT = 16;
+
+        const string ROOT_PATH = "/storage/emulated/0/pixiv/";
+
+        const string BASE_PATH = ROOT_PATH + "database/";
+      
+        const string IMG_PATH = ROOT_PATH + "img/";
+
 
         readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
 
+        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH);
 
         public MainPage()
         {
@@ -558,18 +734,62 @@ namespace Pixiv
 
             DeviceDisplay.KeepScreenOn = true;
 
+            Init();
+        }
 
-            DataBase.Init();
+        async void Init()
+        {
+            try
+            {
+                var p = await Permissions.RequestAsync<Permissions.StorageWrite>();
+
+                if (p == PermissionStatus.Granted)
+                {
+
+                    Directory.CreateDirectory(ROOT_PATH);
+
+                    Directory.CreateDirectory(IMG_PATH);
+                }
+
+            }
+            catch
+            {
+                Task t = DisplayAlert("错误", "需要存储权限", "确定");
+
+                return;
+            }
 
 
-            Crawling.Start();
 
-          
+
+            DataBase.Init(BASE_PATH);
+
+            Crawling.Start(CRAWLING_COUNT);
+
+            InitInputView();
+
             InitViewText();
 
             InitCollView();
+        } 
 
+        void InitInputView()
+        {
+            m_tag_value.Text = InputData.Tag;
+
+            m_min_value.Text = InputData.Min.ToString();
+           
+            m_max_value.Text = InputData.Max.ToString();
+            
+            m_offset_value.Text = InputData.Offset.ToString();
+           
         }
+
+        bool CreateInput()
+        {
+            return InputData.Create(m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
+        }
+
 
         async void InitViewText()
         {
@@ -589,64 +809,38 @@ namespace Pixiv
             {
                 m_imageSources.Add(new Data(Array.Empty<byte>(), string.Empty));
             }
-
-        }
-
-        bool Chuck()
-        {
-            if (string.IsNullOrWhiteSpace(m_min_value.Text) ||
-                string.IsNullOrWhiteSpace(m_max_value.Text))
-            {
-                return false;
-            }
-            else
-            {
-                return true;
-            }
         }
 
         void OnStart(object sender, EventArgs e)
         {
-            m_cons.IsVisible = false;
-
-            if (Chuck())
-            {
-                Start();
-            }
-            else
+            
+            if (CreateInput() == false)
             {
                 Task t = DisplayAlert("错误", "必须输入参数", "确定");
             }
-        }
-
-        Func<int, int, Task<List<PixivData>>> Create()
-        {
-            int min = int.Parse(m_min_value.Text);
-
-            int max = int.Parse(m_max_value.Text);
-
-            string tag = m_tag_value.Text;
-
-            if (string.IsNullOrWhiteSpace(tag))
-            {
-                return (offset, count) => DataBase.Select(min, max, offset, count);
-            }
             else
             {
-                return (offset, count) => DataBase.Select(min, max, tag, offset, count);
+                m_cons.IsVisible = false;
+
+                Start();
             }
         }
+
 
         async Task FlushView()
         {
             await Task.Yield();
         }
 
-        Task SetImage(byte[] buffer, string path)
+        Task SetImage(Data date)
         {
-            var date = new Data(buffer, path);
 
-            m_imageSources.RemoveAt(0);
+            if (m_imageSources.Count >= COLLVIEW_COUNT)
+            {
+                m_imageSources.Clear();
+            }
+
+            //m_imageSources.RemoveAt(0);
 
             m_imageSources.Add(date);
 
@@ -656,23 +850,51 @@ namespace Pixiv
             return FlushView();
         }
 
-
         async void Start()
         {
-            foreach (var item in EnumImage.Create(Create(), 6))
+
+            var imgs = EnumImage.Create(InputData.CreateSelectFunc(), 64, COLLVIEW_COUNT);
+
+            while (true)
             {
-                try
+
+                if (imgs.TryRead(out var t))
                 {
-                    var v = await item;
+                    try
+                    {
 
-                    await SetImage(v.Key, v.Value);
+                        var item = await t;
 
+                        await SetImage(new Data(item.Key, item.Value));
+
+                        await Task.Delay(new TimeSpan(0, 0, 1));
+                    }
+                    catch(Exception e)
+                    {
+
+                    }
+
+                }
+                else
+                {
                     await Task.Delay(new TimeSpan(0, 0, 1));
                 }
-                catch (Exception e)
-                {
 
-                }
+                
+            } 
+        }
+
+       
+
+
+        void OnCollectionViewSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (m_collView.SelectedItem != null)
+            {
+
+                m_download.Add(((Data)m_collView.SelectedItem).Path);
+
+                m_collView.SelectedItem = null;
             }
         }
     }

@@ -777,6 +777,13 @@ namespace Pixiv
             return FlushView();
         }
 
+        static void Log(string name, object e)
+        {
+            string s = System.Environment.NewLine;
+
+            File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+        }
+
         async void Start()
         {
 
@@ -798,7 +805,7 @@ namespace Pixiv
                     }
                     catch(Exception e)
                     {
-
+                        Log("pixivEx", e);
                     }
 
                 }

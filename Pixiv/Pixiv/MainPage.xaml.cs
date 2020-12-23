@@ -55,13 +55,26 @@ namespace Pixiv
         public static PixivData Create(int itemId, string html)
         {
 
-            int mark = int.Parse(F(s_re_mark, html));
+            try
+            {
 
-            string path = GetPath(F(s_re_original, html));
+                int mark = int.Parse(F(s_re_mark, html));
 
-            string tags = F(s_re_tags, html);
+                string path = GetPath(F(s_re_original, html));
 
-            return new PixivData(itemId, mark, path, tags);
+                string tags = F(s_re_tags, html);
+
+                return new PixivData(itemId, mark, path, tags);
+            }
+            catch(FormatException)
+            {
+                throw;
+            }
+            catch(Exception e)
+            {
+                throw new FormatException("", e);
+            }
+
         }
 
         public static Uri GetOriginalUri(string path)
@@ -215,6 +228,13 @@ namespace Pixiv
             return n == 0 ? START_VALUE : n;
         }
 
+        static object Add_(PixivData data)
+        {
+            s_connection.InsertOrReplace(data);
+
+            return null;
+        }
+
         static object Add_(IEnumerable<PixivData> datas)
         {
             foreach (var item in datas)
@@ -280,28 +300,29 @@ namespace Pixiv
         {
             return F(() => Add_(datas));
         }
+
+        public static Task Add(PixivData data)
+        {
+            return F(() => Add_(data));
+        }
     }
 
 
     static class Crawling
     {
-        static async Task Start(MHttpClient httpClient, Func<int> func, int count)
+        static async void Start(Func<Task<PixivData>> func)
         {
-            var list = new List<PixivData>();
+            
             while (true)
             {
-                int itemId = func();
-
-                Uri uri = CreatePixivData.GetNextUri(itemId);
-
+               
                 try
                 {
 
-                    string html = await httpClient.GetStringAsync(uri).ConfigureAwait(false);
 
-                    PixivData data = CreatePixivData.Create(itemId, html);
-
-                    list.Add(data);        
+                    PixivData data = await func().ConfigureAwait(false);
+                   
+                    await DataBase.Add(data).ConfigureAwait(false);
                 }
                 catch (MHttpClientException)
                 {
@@ -311,50 +332,42 @@ namespace Pixiv
                 {
 
                 }
-
-                if (list.Count >= count)
-                {
-                    await DataBase.Add(list).ConfigureAwait(false);
-
-                    list.Clear();
-                }
+                
             }
         }
 
 
-        static void Start(int count, MHttpClient httpClient, Func<int> func)
+        static void Start(int id, int count)
         {
-            Task.Run(async () =>
-            {
-                var list = new List<Task>();
-                foreach (var item in Enumerable.Range(0, count))
-                {
-                    list.Add(Start(httpClient, func, count));
-                }
-
-
-                while (true)
-                {
-                    Task t = await Task.WhenAny(list.ToArray()).ConfigureAwait(false);
-
-                    list.RemoveAll((v) => object.ReferenceEquals(t, v));
-
-                    list.Add(Start(httpClient, func, count));
-                }
-
-            });
-        }
-
-        public static async void Start(int count)
-        {
-
-            int n = await DataBase.GetMaxItemId().ConfigureAwait(false);
-
-            Func<int> func = () => Interlocked.Increment(ref n);
-
             MHttpClient httpClient = CreatePixivMHttpClient.Create(count);
 
-            Crawling.Start(count, httpClient, func);
+
+            Func<Task<PixivData>> func = async () =>
+            {
+                int n = Interlocked.Increment(ref id);
+
+                Uri uri = CreatePixivData.GetNextUri(n);
+
+                string html = await httpClient.GetStringAsync(uri).ConfigureAwait(false);
+
+                return CreatePixivData.Create(n, html);
+            };
+
+
+            foreach (var item in Enumerable.Range(0, count))
+            {
+                Start(func);
+            }
+        }
+
+        public static void Start(int count)
+        {
+
+            Task.Run(() =>
+            {
+                DataBase.GetMaxItemId().ContinueWith((t) => Start(t.Result, count));
+            });
+
         }
     }
 
@@ -792,29 +805,20 @@ namespace Pixiv
             while (true)
             {
 
-                if (imgs.TryRead(out var t))
+                try
                 {
-                    try
-                    {
 
-                        var item = await t;
+                    var item = await (await imgs.ReadAsync());
 
-                        await SetImage(new Data(item.Key, item.Value));
+                    await SetImage(new Data(item.Key, item.Value));
 
-                        await Task.Delay(new TimeSpan(0, 0, 1));
-                    }
-                    catch(Exception e)
-                    {
-                        Log("pixivEx", e);
-                    }
-
+                    await Task.Delay(new TimeSpan(0, 0, 2));
                 }
-                else
+                catch (Exception e)
                 {
-                    await Task.Delay(new TimeSpan(0, 0, 1));
+                    Log("pixivEx", e);
                 }
 
-                
             } 
         }
 

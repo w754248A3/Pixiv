@@ -188,9 +188,10 @@ namespace Pixiv
             // create the database if it doesn't exist
             SQLite.SQLiteOpenFlags.Create |
             // enable multi-threaded database access
-            SQLite.SQLiteOpenFlags.SharedCache |
+            SQLite.SQLiteOpenFlags.SharedCache
 
-            SQLite.SQLiteOpenFlags.FullMutex;
+            //| SQLite.SQLiteOpenFlags.FullMutex
+            ;
 
         static SQLiteConnection s_connection;
 

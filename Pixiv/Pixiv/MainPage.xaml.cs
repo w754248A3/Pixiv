@@ -524,7 +524,7 @@ namespace Pixiv
     }
 
 
-    sealed class Data
+    public sealed class Data
     {
         public Data(byte[] buffer, string path)
         {
@@ -657,13 +657,14 @@ namespace Pixiv
         }
     }
 
+    
     public partial class MainPage : ContentPage
     {
         const int COLLVIEW_COUNT = 32;
 
-        const int SELCT_COUNT = 200;
+        const int SELCT_COUNT = 20;
 
-        const int CRAWLING_COUNT = 16;
+        const int CRAWLING_COUNT = 6;
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 

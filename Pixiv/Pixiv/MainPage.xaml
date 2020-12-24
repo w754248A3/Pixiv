@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="Pixiv.MainPage">
+             x:Class="Pixiv.MainPage"
+             xmlns:data="clr-namespace:Pixiv">
     <StackLayout>
         <Label x:Name="m_viewText"></Label>
         <StackLayout x:Name="m_cons">
@@ -37,12 +38,13 @@
                         SelectionMode="Single"
                         SelectionChanged="OnCollectionViewSelectionChanged">
             <CollectionView.ItemsLayout>
-                <LinearItemsLayout Orientation="Vertical"
-                                   SnapPointsType="Mandatory"
-                                   SnapPointsAlignment="End" />
+                <GridItemsLayout Orientation="Vertical" 
+                                 Span="3"
+                                 SnapPointsType="Mandatory"
+                                 SnapPointsAlignment="End"/>
             </CollectionView.ItemsLayout>
             <CollectionView.ItemTemplate>
-                <DataTemplate>
+                <DataTemplate x:DataType="data:Data">
                     <Image Source="{Binding ImageSource}"></Image>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

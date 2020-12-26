@@ -207,6 +207,10 @@ namespace Pixiv
 
         static string s_basePath;
 
+        static List<PixivData> s_list = new List<PixivData>();
+
+        static int s_maxCount;
+
         static string DatabasePath()
         {
             
@@ -214,18 +218,24 @@ namespace Pixiv
 
         }
 
+        static void Create()
+        {
+            s_connection = new SQLiteConnection(DatabasePath(), Flags);
 
-        public static void Init(string basePath)
+            s_connection.CreateTable<PixivData>();
+        }
+
+        public static void Init(string basePath, int maxCount)
         {
             s_basePath = basePath;
+
+            s_maxCount = maxCount;
 
             Directory.CreateDirectory(s_basePath);
 
             s_slim = new SemaphoreSlim(1, 1);
 
-            s_connection = new SQLiteConnection(DatabasePath(), Flags);
-
-            s_connection.CreateTable<PixivData>();
+            Create();
         }
 
         static int GetMaxItemId_()
@@ -245,9 +255,35 @@ namespace Pixiv
 
         static object Add_(PixivData data)
         {
-            s_connection.InsertOrReplace(data);
+            s_list.Add(data);
 
-            return null;
+            if (s_list.Count >= s_maxCount)
+            {
+
+                try
+                {
+                    s_connection.BeginTransaction();
+
+
+                    foreach (var item in s_list)
+                    {
+                        s_connection.InsertOrReplace(item);
+                    }
+
+                    s_list.Clear();
+                }
+                finally
+                {
+                    s_connection.Commit();
+                }
+
+                return null;
+            }
+            else
+            {
+                return null; 
+            }
+            
         }
 
        
@@ -266,6 +302,31 @@ namespace Pixiv
             return Task.Run(() => FF(func));
         }
 
+        static void Log(SQLiteException e)
+        {
+            string s = System.Environment.NewLine;
+
+            File.AppendAllText($"/storage/emulated/0/pixiv.SQLiteException.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e.Result}", System.Text.Encoding.UTF8);
+        }
+
+        static T Catch<T>(Func<T> func)
+        {
+            try
+            {
+                return func();
+            }
+            catch (SQLite.SQLiteException e)
+            {
+                Log(e);
+
+                s_connection.Close();
+
+                Create();
+            }
+
+            return func();
+        }
+
         static async Task<T> FF<T>(Func<T> func)
         {
 
@@ -273,6 +334,8 @@ namespace Pixiv
             {
                 await s_slim.WaitAsync().ConfigureAwait(false);
 
+
+                //return Catch(func);
 
                 return func();
             }
@@ -654,11 +717,13 @@ namespace Pixiv
     
     public partial class MainPage : ContentPage
     {
-        const int COLLVIEW_COUNT = 200;
+        const int COLLVIEW_COUNT = 400;
 
         const int SELCT_COUNT = 200;
 
         const int CRAWLING_COUNT = 32;
+
+        const int LOADIMG_COUNT = 6;
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
@@ -675,11 +740,11 @@ namespace Pixiv
         {
             InitializeComponent();
 
-            
-            Init();
+
+            Task t = Init();
         }
 
-        async void Init()
+        async Task Init()
         {
            
             var p = await Permissions.RequestAsync<Permissions.StorageWrite>();
@@ -699,15 +764,15 @@ namespace Pixiv
 
             Directory.CreateDirectory(IMG_PATH);
 
-           
 
-            DataBase.Init(BASE_PATH);
+
+            DataBase.Init(BASE_PATH, CRAWLING_COUNT);
 
             Crawling.Start(CRAWLING_COUNT);
 
             InitInputView();
 
-            InitViewText();
+            Task tt = InitViewText();
 
             InitCollView();
         } 
@@ -730,7 +795,7 @@ namespace Pixiv
         }
 
 
-        async void InitViewText()
+        async Task InitViewText()
         {
             while (true)
             {
@@ -756,7 +821,7 @@ namespace Pixiv
             {
                 m_cons.IsVisible = false;
 
-                Start();
+                Task t = Start();
             }
         }
 
@@ -786,10 +851,10 @@ namespace Pixiv
             File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
         }
 
-        async void Start()
+        async Task Start()
         {
 
-            var imgs = EnumImage.Create(InputData.CreateSelectFunc(), 64, COLLVIEW_COUNT);
+            var imgs = EnumImage.Create(InputData.CreateSelectFunc(), 64, LOADIMG_COUNT);
 
             while (true)
             {

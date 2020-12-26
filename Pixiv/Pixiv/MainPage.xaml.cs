@@ -131,7 +131,7 @@ namespace Pixiv
         }
 
 
-        public static MHttpClient Create(int maxStreamPoolCount)
+        public static MHttpClient CreateProxy(int maxStreamPoolCount)
         {
             return new MHttpClient(new MHttpClientHandler
             {
@@ -139,7 +139,16 @@ namespace Pixiv
 
                 AuthenticateCallback = CreateAuthenticateAsync,
 
-                MaxStreamPoolCount = maxStreamPoolCount
+                MaxStreamPoolCount = checked(maxStreamPoolCount * 4)
+            });
+        }
+
+        public static MHttpClient Create(int maxStreamPoolCount, int maxResponseSize)
+        {
+            return new MHttpClient(new MHttpClientHandler
+            {
+                MaxStreamPoolCount = checked(maxStreamPoolCount * 4),
+                MaxResponseSize = maxResponseSize
             });
         }
     }
@@ -188,10 +197,9 @@ namespace Pixiv
             // create the database if it doesn't exist
             SQLite.SQLiteOpenFlags.Create |
             // enable multi-threaded database access
-            SQLite.SQLiteOpenFlags.SharedCache
+            SQLite.SQLiteOpenFlags.SharedCache |
 
-            //| SQLite.SQLiteOpenFlags.FullMutex
-            ;
+            SQLite.SQLiteOpenFlags.FullMutex;
 
         static SQLiteConnection s_connection;
 
@@ -222,11 +230,17 @@ namespace Pixiv
 
         static int GetMaxItemId_()
         {
-            var datas = s_connection.DeferredQuery<PixivData>($"SELECT {nameof(PixivData.ItemId)} FROM {nameof(PixivData)} ORDER BY {nameof(PixivData.ItemId)} DESC");
+            var datas = s_connection.Query<PixivData>($"SELECT {nameof(PixivData.ItemId)} FROM {nameof(PixivData)} ORDER BY {nameof(PixivData.ItemId)} DESC LIMIT 1");
 
-            int n = datas.Select((d) => d.ItemId).FirstOrDefault();
+            if (datas.Count == 0)
+            {
+                return START_VALUE;
+            }
+            else
+            {
+                return datas[0].ItemId;
+            }
 
-            return n == 0 ? START_VALUE : n;
         }
 
         static object Add_(PixivData data)
@@ -236,17 +250,7 @@ namespace Pixiv
             return null;
         }
 
-        static object Add_(IEnumerable<PixivData> datas)
-        {
-            foreach (var item in datas)
-            {
-                s_connection.InsertOrReplace(item);
-            }
-
-            return null;
-        }
-
-
+       
         static List<PixivData> Select_(int minMark, int maxMark, int offset, int count)
         {
             return s_connection.Query<PixivData>($"SELECT * FROM {nameof(PixivData)} WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark} ORDER BY {nameof(PixivData.Mark)} DESC LIMIT {count} OFFSET {offset}");
@@ -296,12 +300,6 @@ namespace Pixiv
             return F(GetMaxItemId_);
         }
 
-
-        public static Task Add(IEnumerable<PixivData> datas)
-        {
-            return F(() => Add_(datas));
-        }
-
         public static Task Add(PixivData data)
         {
             return F(() => Add_(data));
@@ -311,7 +309,7 @@ namespace Pixiv
 
     static class Crawling
     {
-        static async void Start(Func<Task<PixivData>> func)
+        static async Task Start(MHttpClient client, Func<int> func)
         {
             
             while (true)
@@ -319,10 +317,14 @@ namespace Pixiv
                
                 try
                 {
+                    int n = func();
 
+                    Uri uri = CreatePixivData.GetNextUri(n);
 
-                    PixivData data = await func().ConfigureAwait(false);
-                   
+                    string html = await client.GetStringAsync(uri).ConfigureAwait(false);
+
+                    PixivData data = CreatePixivData.Create(n, html);
+
                     await DataBase.Add(data).ConfigureAwait(false);
                 }
                 catch (MHttpClientException)
@@ -340,25 +342,16 @@ namespace Pixiv
 
         static void Start(int id, int count)
         {
-            MHttpClient httpClient = CreatePixivMHttpClient.Create(count);
+
+            Func<int> func = () => Interlocked.Increment(ref id);
 
 
-            Func<Task<PixivData>> func = async () =>
-            {
-                int n = Interlocked.Increment(ref id);
-
-                Uri uri = CreatePixivData.GetNextUri(n);
-
-                string html = await httpClient.GetStringAsync(uri).ConfigureAwait(false);
-
-                return CreatePixivData.Create(n, html);
-            };
-
+            MHttpClient httpClient = CreatePixivMHttpClient.CreateProxy(count);
 
             foreach (var item in Enumerable.Range(0, count))
             {
-                Start(func);
-            }
+                Task t = Start(httpClient, func);
+            }  
         }
 
         public static void Start(int count)
@@ -393,14 +386,14 @@ namespace Pixiv
         {
             string name = Path.Combine(m_basePath, Path.GetRandomFileName() + ".png");
 
-            using (var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 4096, true))
+            using (var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 1, true))
             {
 
                 await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
             }
         }
 
-        async void Load(string path)
+        async Task Load(string path)
         {
             try
             {
@@ -415,7 +408,11 @@ namespace Pixiv
 
                 await SaveImage(buffer).ConfigureAwait(false);
             }
-            catch
+            catch(MHttpClientException)
+            {
+
+            }
+            catch (FormatException)
             {
 
             }
@@ -445,7 +442,7 @@ namespace Pixiv
 
         }
 
-        static async void CreateLoadImg(MHttpClient client, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
+        static async Task CreateLoadImg(MHttpClient client, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
         {
             while (true)
             {
@@ -469,7 +466,7 @@ namespace Pixiv
             }
         }
 
-        static async void CreateLoadData(MyChannels<Task<PixivData>> coll, Func<Task<List<PixivData>>> func)
+        static async Task CreateLoadData(MyChannels<Task<PixivData>> coll, Func<Task<List<PixivData>>> func)
         {
             try
             {
@@ -506,10 +503,7 @@ namespace Pixiv
 
             var imgs = new MyChannels<Task<KeyValuePair<byte[], string>>>(imgLoadCount);
 
-            var mhttpclient = new MHttpClient(new MHttpClientHandler
-            {
-                MaxStreamPoolCount = imgLoadCount * 2
-            });
+            var mhttpclient = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5);
 
 
             Task.Run(() => CreateLoadData(datas, func));
@@ -660,11 +654,11 @@ namespace Pixiv
     
     public partial class MainPage : ContentPage
     {
-        const int COLLVIEW_COUNT = 32;
+        const int COLLVIEW_COUNT = 200;
 
-        const int SELCT_COUNT = 20;
+        const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 6;
+        const int CRAWLING_COUNT = 32;
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
@@ -681,35 +675,31 @@ namespace Pixiv
         {
             InitializeComponent();
 
-            DeviceDisplay.KeepScreenOn = true;
-
+            
             Init();
         }
 
         async void Init()
         {
-            try
-            {
-                var p = await Permissions.RequestAsync<Permissions.StorageWrite>();
+           
+            var p = await Permissions.RequestAsync<Permissions.StorageWrite>();
 
-                if (p == PermissionStatus.Granted)
-                {
-
-                    Directory.CreateDirectory(ROOT_PATH);
-
-                    Directory.CreateDirectory(IMG_PATH);
-                }
-
-            }
-            catch
+            if (p != PermissionStatus.Granted)
             {
                 Task t = DisplayAlert("错误", "需要存储权限", "确定");
 
+                Environment.Exit(0);
                 return;
             }
 
+            DeviceDisplay.KeepScreenOn = true;
 
 
+            Directory.CreateDirectory(ROOT_PATH);
+
+            Directory.CreateDirectory(IMG_PATH);
+
+           
 
             DataBase.Init(BASE_PATH);
 
@@ -770,26 +760,23 @@ namespace Pixiv
             }
         }
 
-
-        async Task FlushView()
-        {
-            await Task.Yield();
-        }
-
-        Task SetImage(Data date)
+        async Task SetImage(Data date)
         {
 
             if (m_imageSources.Count >= COLLVIEW_COUNT)
             {
                 m_imageSources.Clear();
+
+                await Task.Yield();
             }
 
             m_imageSources.Add(date);
 
+            await Task.Yield();
 
             m_collView.ScrollTo(m_imageSources.Count - 1, position: ScrollToPosition.End, animate: false);
 
-            return FlushView();
+            await Task.Yield();
         }
 
         static void Log(string name, object e)
@@ -810,11 +797,11 @@ namespace Pixiv
                 try
                 {
 
-                    var item = await (await imgs.ReadAsync());
+                    var item = await await imgs.ReadAsync();
 
                     await SetImage(new Data(item.Key, item.Value));
 
-                    await Task.Delay(new TimeSpan(0, 0, 2));
+                    await Task.Delay(1000);
                 }
                 catch (Exception e)
                 {

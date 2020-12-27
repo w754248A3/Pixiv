@@ -139,7 +139,7 @@ namespace Pixiv
 
                 AuthenticateCallback = CreateAuthenticateAsync,
 
-                MaxStreamPoolCount = checked(maxStreamPoolCount * 4)
+                MaxStreamPoolCount = checked(maxStreamPoolCount * 2)
             });
         }
 
@@ -147,7 +147,7 @@ namespace Pixiv
         {
             return new MHttpClient(new MHttpClientHandler
             {
-                MaxStreamPoolCount = checked(maxStreamPoolCount * 4),
+                MaxStreamPoolCount = checked(maxStreamPoolCount * 2),
                 MaxResponseSize = maxResponseSize
             });
         }
@@ -307,24 +307,6 @@ namespace Pixiv
             string s = System.Environment.NewLine;
 
             File.AppendAllText($"/storage/emulated/0/pixiv.SQLiteException.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e.Result}", System.Text.Encoding.UTF8);
-        }
-
-        static T Catch<T>(Func<T> func)
-        {
-            try
-            {
-                return func();
-            }
-            catch (SQLite.SQLiteException e)
-            {
-                Log(e);
-
-                s_connection.Close();
-
-                Create();
-            }
-
-            return func();
         }
 
         static async Task<T> FF<T>(Func<T> func)
@@ -721,7 +703,7 @@ namespace Pixiv
 
         const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 32;
+        const int CRAWLING_COUNT = 6;
 
         const int LOADIMG_COUNT = 6;
 
@@ -867,6 +849,10 @@ namespace Pixiv
                     await SetImage(new Data(item.Key, item.Value));
 
                     await Task.Delay(1000);
+                }
+                catch (MHttpClientException)
+                {
+
                 }
                 catch (Exception e)
                 {

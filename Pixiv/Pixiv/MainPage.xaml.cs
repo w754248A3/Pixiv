@@ -16,7 +16,20 @@ using Xamarin.Forms;
 
 namespace Pixiv
 {
+    static class Log
+    {
+        static readonly object s_lock= new object();
 
+        public static void Write(string name, Exception e)
+        {
+            lock (s_lock)
+            {
+                string s = System.Environment.NewLine;
+
+                File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+            }
+        }
+    }
 
     static class CreatePixivData
     {
@@ -71,6 +84,8 @@ namespace Pixiv
                 throw;
             }
             catch(Exception e)
+            when(e is OverflowException ||
+                 e is ArgumentOutOfRangeException)
             {
                 throw new FormatException("", e);
             }
@@ -354,7 +369,7 @@ namespace Pixiv
 
     static class Crawling
     {
-        static async Task Start(MHttpClient client, Func<int> func)
+        static async Task Start(Func<Uri, Task<string>> get, Func<int> func)
         {
             
             while (true)
@@ -366,15 +381,23 @@ namespace Pixiv
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
-                    string html = await client.GetStringAsync(uri).ConfigureAwait(false);
+                    string html = await get(uri).ConfigureAwait(false);
 
                     PixivData data = CreatePixivData.Create(n, html);
 
                     await DataBase.Add(data).ConfigureAwait(false);
                 }
-                catch (MHttpClientException)
+                catch (MHttpClientException e)
+                when (e.InnerException.GetType() == typeof(MHttpException) ||
+                       e.InnerException.GetType() == typeof(IOException) ||
+                       e.InnerException.GetType() == typeof(FormatException) ||
+                       e.InnerException.GetType() == typeof(ObjectDisposedException))
                 {
 
+                }
+                catch(MHttpClientException e)
+                {
+                    Log.Write("pixExWl", e);
                 }
                 catch (FormatException)
                 {
@@ -393,9 +416,28 @@ namespace Pixiv
 
             MHttpClient httpClient = CreatePixivMHttpClient.CreateProxy(count);
 
+            Func<Uri, Task<string>> get = async (uri) =>
+            {
+
+                foreach (var item in Enumerable.Range(0, 3))
+                {
+                    try
+                    {
+                        return await httpClient.GetStringAsync(uri).ConfigureAwait(false);
+                    }
+                    catch (MHttpClientException e)
+                    when (e.InnerException.GetType() == typeof(FormatException))
+                    {
+                        await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
+                    }
+                }
+
+                return await httpClient.GetStringAsync(uri).ConfigureAwait(false);
+            };
+
             foreach (var item in Enumerable.Range(0, count))
             {
-                Task t = Start(httpClient, func);
+                Task t = Start(get, func);
             }  
         }
 
@@ -440,27 +482,32 @@ namespace Pixiv
 
         async Task Load(string path)
         {
-            try
+
+
+            foreach (var item in Enumerable.Range(0, 3))
             {
+                try
+                {
 
-                Uri uri = CreatePixivData.GetOriginalUri(path);
+                    Uri uri = CreatePixivData.GetOriginalUri(path);
 
 
-                Uri referer = new Uri("https://www.pixiv.net/");
+                    Uri referer = new Uri("https://www.pixiv.net/");
 
 
-                byte[] buffer = await m_client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
+                    byte[] buffer = await m_client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
 
-                await SaveImage(buffer).ConfigureAwait(false);
+                    await SaveImage(buffer).ConfigureAwait(false);
+
+                    return;
+                }
+                catch (MHttpClientException)
+                {
+
+                }
+
             }
-            catch(MHttpClientException)
-            {
 
-            }
-            catch (FormatException)
-            {
-
-            }
 
         }
 
@@ -703,7 +750,7 @@ namespace Pixiv
 
         const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 6;
+        const int CRAWLING_COUNT = 64;
 
         const int LOADIMG_COUNT = 6;
 
@@ -826,12 +873,7 @@ namespace Pixiv
             await Task.Yield();
         }
 
-        static void Log(string name, object e)
-        {
-            string s = System.Environment.NewLine;
-
-            File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
-        }
+        
 
         async Task Start()
         {
@@ -850,13 +892,15 @@ namespace Pixiv
 
                     await Task.Delay(1000);
                 }
-                catch (MHttpClientException)
+                catch (MHttpClientException e) 
+                when (e.InnerException.GetType() == typeof(MHttpException) ||
+                        e.InnerException.GetType() == typeof(IOException))
                 {
 
                 }
                 catch (Exception e)
                 {
-                    Log("pixivEx", e);
+                    Log.Write("pixivEx", e);
                 }
 
             } 

@@ -36,7 +36,8 @@
         </StackLayout>
         <CollectionView x:Name="m_collView"
                         SelectionMode="Single"
-                        SelectionChanged="OnCollectionViewSelectionChanged">
+                        SelectionChanged="OnCollectionViewSelectionChanged"
+                        Scrolled="OnScrolled">
             <CollectionView.ItemsLayout>
                 <GridItemsLayout Orientation="Vertical" 
                                  Span="3"

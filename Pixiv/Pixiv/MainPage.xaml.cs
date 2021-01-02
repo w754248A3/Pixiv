@@ -369,6 +369,30 @@ namespace Pixiv
 
     static class Crawling
     {
+        const int MAX_EX_COUNT = 1000;
+
+        static int s_count = 0;
+
+        public static string Status => Volatile.Read(ref s_count) >= MAX_EX_COUNT ? "COver" : "CRun";
+        
+
+        static void Set()
+        {
+            Interlocked.Exchange(ref s_count, 0);
+        }
+
+        static bool IsBarck()
+        {
+            if(Interlocked.Increment(ref s_count) >= MAX_EX_COUNT)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
         static async Task Start(Func<Uri, Task<string>> get, Func<int> func)
         {
             
@@ -385,12 +409,21 @@ namespace Pixiv
 
                     PixivData data = CreatePixivData.Create(n, html);
 
+                    Set();
+
                     await DataBase.Add(data).ConfigureAwait(false);
+                }
+                catch(MHttpClientException e)
+                when(e.InnerException.GetType() == typeof(FormatException))
+                {
+                    if (IsBarck())
+                    {
+                        return;
+                    }
                 }
                 catch (MHttpClientException e)
                 when (e.InnerException.GetType() == typeof(MHttpException) ||
                        e.InnerException.GetType() == typeof(IOException) ||
-                       e.InnerException.GetType() == typeof(FormatException) ||
                        e.InnerException.GetType() == typeof(ObjectDisposedException))
                 {
 
@@ -454,6 +487,23 @@ namespace Pixiv
 
     sealed class LoadBigImg
     {
+
+        static int s_count = 0;
+
+        public static int Count => Volatile.Read(ref s_count);
+
+        static void AddCount()
+        {
+            Interlocked.Increment(ref s_count);
+        }
+
+
+        static void SubCount()
+        {
+            Interlocked.Decrement(ref s_count);
+        }
+
+
         readonly MHttpClient m_client;
 
         readonly string m_basePath;
@@ -484,7 +534,7 @@ namespace Pixiv
         {
 
 
-            foreach (var item in Enumerable.Range(0, 3))
+            foreach (var item in Enumerable.Range(0, 7))
             {
                 try
                 {
@@ -503,7 +553,7 @@ namespace Pixiv
                 }
                 catch (MHttpClientException)
                 {
-
+                    await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
                 }
 
             }
@@ -511,9 +561,23 @@ namespace Pixiv
 
         }
 
+        async Task LoadCount(string path)
+        {
+            try
+            {
+                AddCount();
+
+                await Load(path).ConfigureAwait(false);
+            }
+            finally
+            {
+                SubCount();
+            }
+        }
+
         public void Add(string path)
         {
-            Task.Run(() => Load(path));
+            Task.Run(() => LoadCount(path));
         }
     }
 
@@ -522,7 +586,7 @@ namespace Pixiv
         
 
 
-        static Task<byte[]> GetImageFromWebAsync(MHttpClient client, PixivData data)
+        static async Task<byte[]> GetImageFromWebAsync(MHttpClient client, PixivData data)
         {
             Uri uri = CreatePixivData.GetSmallUri(data);
 
@@ -530,7 +594,22 @@ namespace Pixiv
             Uri referer = new Uri("https://www.pixiv.net/");
 
 
-            return client.GetByteArrayAsync(uri, referer);
+            foreach (var item in Enumerable.Range(0, 5))
+            {
+                try
+                {
+                    return await client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
+
+                }
+                catch (MHttpClientException)
+                {
+                    await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
+                }
+               
+            }
+
+            return await client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
+
 
         }
 
@@ -743,7 +822,54 @@ namespace Pixiv
         }
     }
 
-    
+
+    sealed class Awa
+    {
+
+        TaskCompletionSource<object> m_source;
+
+        public void SetAwait()
+        {
+            if (m_source is null)
+            {
+                m_source = new TaskCompletionSource<object>();
+            }
+            else
+            {
+
+            }
+        }
+
+        public void SetAdd()
+        {
+            if (m_source is null)
+            {
+
+            }
+            else
+            {
+                var v = m_source;
+
+                m_source = null;
+
+                v.TrySetResult(default);
+            }
+        }
+
+
+        public Task Get()
+        {
+            if (m_source is null)
+            {
+                return Task.CompletedTask;
+            }
+            else
+            {
+                return m_source.Task;
+            }
+        }
+    }
+
     public partial class MainPage : ContentPage
     {
         const int COLLVIEW_COUNT = 400;
@@ -764,6 +890,8 @@ namespace Pixiv
         readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
 
         readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH);
+
+        readonly Awa m_awa = new Awa();
 
         public MainPage()
         {
@@ -828,7 +956,15 @@ namespace Pixiv
         {
             while (true)
             {
-                m_viewText.Text = (await DataBase.GetMaxItemId()).ToString();
+                int id = await DataBase.GetMaxItemId();
+
+                string c = Crawling.Status;
+
+                int count = LoadBigImg.Count;
+
+
+
+                m_viewText.Text = $"{id} {c} {count}";
 
                 await Task.Delay(new TimeSpan(0, 0, 5));
             }
@@ -885,6 +1021,7 @@ namespace Pixiv
 
                 try
                 {
+                    await m_awa.Get();
 
                     var item = await await imgs.ReadAsync();
 
@@ -917,6 +1054,23 @@ namespace Pixiv
                 m_download.Add(((Data)m_collView.SelectedItem).Path);
 
                 m_collView.SelectedItem = null;
+            }
+        }
+
+        void OnScrolled(object sender, ItemsViewScrolledEventArgs e)
+        {
+            long n = (long)e.VerticalDelta;
+
+            if (n != 0)
+            {
+                if (n < 0)
+                {
+                    m_awa.SetAwait();
+                }
+                else if (n > 0 && e.LastVisibleItemIndex + 1 == m_imageSources.Count)
+                {
+                    m_awa.SetAdd();
+                }
             }
         }
     }

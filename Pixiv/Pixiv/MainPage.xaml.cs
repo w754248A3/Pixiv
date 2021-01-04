@@ -68,28 +68,13 @@ namespace Pixiv
         public static PixivData Create(int itemId, string html)
         {
 
-            try
-            {
+            int mark = int.Parse(F(s_re_mark, html));
 
-                int mark = int.Parse(F(s_re_mark, html));
+            string path = GetPath(F(s_re_original, html));
 
-                string path = GetPath(F(s_re_original, html));
+            string tags = F(s_re_tags, html);
 
-                string tags = F(s_re_tags, html);
-
-                return new PixivData(itemId, mark, path, tags);
-            }
-            catch(FormatException)
-            {
-                throw;
-            }
-            catch(Exception e)
-            when(e is OverflowException ||
-                 e is ArgumentOutOfRangeException)
-            {
-                throw new FormatException("", e);
-            }
-
+            return new PixivData(itemId, mark, path, tags);
         }
 
         public static Uri GetOriginalUri(string path)
@@ -130,9 +115,36 @@ namespace Pixiv
     {
         const string HOST = "www.pixivision.net";
 
-        static Task CreateConnectAsync(Socket socket, Uri uri)
+        static async Task CreateConnectAsync(Socket socket, Uri uri)
         {
-            return socket.ConnectAsync(HOST, 443);
+            while (true)
+            {
+                try
+                {
+                    await socket.ConnectAsync(HOST, 443).ConfigureAwait(false);
+
+                    return;
+                }
+                catch(SocketException e)
+                {
+                    var c = e.SocketErrorCode;
+                   
+                    if (c == SocketError.TryAgain ||
+                        c == SocketError.TimedOut ||
+                        c == SocketError.NetworkUnreachable ||
+                        c == SocketError.NetworkDown ||
+                        c == SocketError.HostUnreachable)
+                    {
+                        await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+            }
+
+          
         }
 
         static async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
@@ -145,10 +157,27 @@ namespace Pixiv
             return sslStream;
         }
 
-
-        public static MHttpClient CreateProxy(int maxStreamPoolCount)
+        static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
         {
-            return new MHttpClient(new MHttpClientHandler
+            foreach (var item in Enumerable.Range(0, reloadCount))
+            {
+                try
+                {
+                    return await func().ConfigureAwait(false);
+                }
+                catch (MHttpClientException e)
+                when (e.InnerException.GetType() == typeof(FormatException))
+                {
+                    await Task.Delay(new TimeSpan(0, 0, item % 3)).ConfigureAwait(false);
+                }
+            }
+
+            return await func().ConfigureAwait(false);
+        }
+
+        public static Func<Uri, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount)
+        {
+            MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
                 ConnectCallback = CreateConnectAsync,
 
@@ -156,15 +185,26 @@ namespace Pixiv
 
                 MaxStreamPoolCount = checked(maxStreamPoolCount * 2)
             });
+
+
+            return (uri) =>
+            {
+                return GetAsync(() => client.GetStringAsync(uri), reloadCount);
+            };
         }
 
-        public static MHttpClient Create(int maxStreamPoolCount, int maxResponseSize)
+        public static Func<Uri, Uri, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, int reloadCount)
         {
-            return new MHttpClient(new MHttpClientHandler
+            MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
                 MaxStreamPoolCount = checked(maxStreamPoolCount * 2),
                 MaxResponseSize = maxResponseSize
             });
+
+            return (uri, referer) =>
+            {
+                return GetAsync(() => client.GetByteArrayAsync(uri, referer), reloadCount);
+            };
         }
     }
 
@@ -317,13 +357,6 @@ namespace Pixiv
             return Task.Run(() => FF(func));
         }
 
-        static void Log(SQLiteException e)
-        {
-            string s = System.Environment.NewLine;
-
-            File.AppendAllText($"/storage/emulated/0/pixiv.SQLiteException.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e.Result}", System.Text.Encoding.UTF8);
-        }
-
         static async Task<T> FF<T>(Func<T> func)
         {
 
@@ -367,156 +400,181 @@ namespace Pixiv
     }
 
 
-    static class Crawling
+    sealed class Crawling
     {
-        const int MAX_EX_COUNT = 1000;
-
-        static int s_count = 0;
-
-        public static string Status => Volatile.Read(ref s_count) >= MAX_EX_COUNT ? "COver" : "CRun";
-        
-
-        static void Set()
+        sealed class CrawlingCount
         {
-            Interlocked.Exchange(ref s_count, 0);
+            readonly int m_max_ex_count;
+
+            volatile int m_id;
+
+            volatile int m_ex_count;
+
+
+            public CrawlingCount(int max_ex_count, int id)
+            {
+                m_max_ex_count = max_ex_count;
+
+                m_id = id;
+
+                m_ex_count = 0;
+            }
+
+
+            public int Id()
+            {
+                return m_id;
+            }
+
+            public int GetNextId()
+            {
+                return Interlocked.Increment(ref m_id);
+            }
+
+            public void Completed()
+            {
+
+                m_ex_count = 0;
+
+            }
+
+
+            public bool IsReturn()
+            {
+                if (Interlocked.Increment(ref m_ex_count) >= m_max_ex_count)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+            }
         }
 
-        static bool IsBarck()
+
+        readonly Func<Uri, Task<string>> m_client;
+
+        readonly CrawlingCount m_count;
+
+        public Task Task { get; private set; }
+
+        public int Id => m_count.Id();
+
+        public string Message => $"Id:{Id} IsCompleted:{Task.IsCompleted}";
+
+        private Crawling(int startId, int runCount, int maxExCount, int reloadCount)
         {
-            if(Interlocked.Increment(ref s_count) >= MAX_EX_COUNT)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+
+            m_client = CreatePixivMHttpClient.CreateProxy(runCount, reloadCount);
+
+            m_count = new CrawlingCount(maxExCount, startId);
+
         }
 
-        static async Task Start(Func<Uri, Task<string>> get, Func<int> func)
+        int GetNextId()
         {
-            
+            return m_count.GetNextId();
+        }
+
+        async Task WhileAsync()
+        {
             while (true)
             {
-               
+
                 try
                 {
-                    int n = func();
+                    int n = GetNextId();
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
-                    string html = await get(uri).ConfigureAwait(false);
+                    string html = await m_client(uri).ConfigureAwait(false);
+
+                    m_count.Completed();
 
                     PixivData data = CreatePixivData.Create(n, html);
 
-                    Set();
-
                     await DataBase.Add(data).ConfigureAwait(false);
                 }
-                catch(MHttpClientException e)
-                when(e.InnerException.GetType() == typeof(FormatException))
+                catch (MHttpClientException e)
+                when (e.InnerException.GetType() == typeof(FormatException))
                 {
-                    if (IsBarck())
+                    if (m_count.IsReturn())
                     {
                         return;
                     }
                 }
-                catch (MHttpClientException e)
-                when (e.InnerException.GetType() == typeof(MHttpException) ||
-                       e.InnerException.GetType() == typeof(IOException) ||
-                       e.InnerException.GetType() == typeof(ObjectDisposedException))
+                catch (MHttpClientException)
                 {
-
+                    
                 }
-                catch(MHttpClientException e)
-                {
-                    Log.Write("pixExWl", e);
-                }
-                catch (FormatException)
-                {
-
-                }
-                
             }
         }
 
-
-        static void Start(int id, int count)
+        public static Crawling Start(int startId, int runCount, int maxExCount, int reloadCount)
         {
+            Crawling crawling = new Crawling(startId, runCount, maxExCount, reloadCount);
 
-            Func<int> func = () => Interlocked.Increment(ref id);
-
-
-            MHttpClient httpClient = CreatePixivMHttpClient.CreateProxy(count);
-
-            Func<Uri, Task<string>> get = async (uri) =>
+            crawling.Task = Task.Run(() =>
             {
+                List<Task> tasks = new List<Task>();
 
-                foreach (var item in Enumerable.Range(0, 3))
+                foreach (var item in Enumerable.Range(0, runCount))
                 {
-                    try
-                    {
-                        return await httpClient.GetStringAsync(uri).ConfigureAwait(false);
-                    }
-                    catch (MHttpClientException e)
-                    when (e.InnerException.GetType() == typeof(FormatException))
-                    {
-                        await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
-                    }
+                    tasks.Add(crawling.WhileAsync());
                 }
 
-                return await httpClient.GetStringAsync(uri).ConfigureAwait(false);
-            };
 
-            foreach (var item in Enumerable.Range(0, count))
-            {
-                Task t = Start(get, func);
-            }  
-        }
-
-        public static void Start(int count)
-        {
-
-            Task.Run(() =>
-            {
-                DataBase.GetMaxItemId().ContinueWith((t) => Start(t.Result, count));
+                return Task.WhenAll(tasks.ToArray());
             });
 
+            return crawling;
         }
     }
 
     sealed class LoadBigImg
     {
 
-        static int s_count = 0;
-
-        public static int Count => Volatile.Read(ref s_count);
-
-        static void AddCount()
+        sealed class LoadBigImgCount
         {
-            Interlocked.Increment(ref s_count);
+            volatile int m_count;
+
+            public int Count => m_count;
+
+            public LoadBigImgCount()
+            {
+                m_count = 0;
+            }
+
+            public void AddCount()
+            {
+                Interlocked.Increment(ref m_count);
+            }
+
+
+            public void SubCount()
+            {
+                Interlocked.Decrement(ref m_count);
+            }
         }
 
+        readonly LoadBigImgCount m_count = new LoadBigImgCount();
 
-        static void SubCount()
-        {
-            Interlocked.Decrement(ref s_count);
-        }
-
-
-        readonly MHttpClient m_client;
+        readonly Func<Uri, Uri, Task<byte[]>> m_client;
 
         readonly string m_basePath;
+
+        public int Count => m_count.Count;
+
         public LoadBigImg(string basePath)
         {
-            m_client = new MHttpClient(new MHttpClientHandler
-            {
-                MaxResponseSize = 1024 * 1024 * 50
-            });
-
+            
             Directory.CreateDirectory(basePath);
 
             m_basePath = basePath;
+
+
+            m_client = CreatePixivMHttpClient.Create(6, 1024 * 1024 * 20, 6);
         }
 
         async Task SaveImage(byte[] buffer)
@@ -532,32 +590,15 @@ namespace Pixiv
 
         async Task Load(string path)
         {
+            Uri uri = CreatePixivData.GetOriginalUri(path);
 
 
-            foreach (var item in Enumerable.Range(0, 7))
-            {
-                try
-                {
-
-                    Uri uri = CreatePixivData.GetOriginalUri(path);
+            Uri referer = new Uri("https://www.pixiv.net/");
 
 
-                    Uri referer = new Uri("https://www.pixiv.net/");
+            byte[] buffer = await m_client(uri, referer).ConfigureAwait(false);
 
-
-                    byte[] buffer = await m_client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
-
-                    await SaveImage(buffer).ConfigureAwait(false);
-
-                    return;
-                }
-                catch (MHttpClientException)
-                {
-                    await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
-                }
-
-            }
-
+            await SaveImage(buffer).ConfigureAwait(false);
 
         }
 
@@ -565,13 +606,13 @@ namespace Pixiv
         {
             try
             {
-                AddCount();
+                m_count.AddCount();
 
                 await Load(path).ConfigureAwait(false);
             }
             finally
             {
-                SubCount();
+                m_count.SubCount();
             }
         }
 
@@ -586,7 +627,7 @@ namespace Pixiv
         
 
 
-        static async Task<byte[]> GetImageFromWebAsync(MHttpClient client, PixivData data)
+        static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, Task<byte[]>> func, PixivData data)
         {
             Uri uri = CreatePixivData.GetSmallUri(data);
 
@@ -594,26 +635,10 @@ namespace Pixiv
             Uri referer = new Uri("https://www.pixiv.net/");
 
 
-            foreach (var item in Enumerable.Range(0, 5))
-            {
-                try
-                {
-                    return await client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
-
-                }
-                catch (MHttpClientException)
-                {
-                    await Task.Delay(new TimeSpan(0, 0, 1)).ConfigureAwait(false);
-                }
-               
-            }
-
-            return await client.GetByteArrayAsync(uri, referer).ConfigureAwait(false);
-
-
+            return func(uri, referer);
         }
 
-        static async Task CreateLoadImg(MHttpClient client, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
+        static async Task CreateLoadImg(Func<Uri, Uri, Task<byte[]>> func, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
         {
             while (true)
             {
@@ -622,7 +647,7 @@ namespace Pixiv
 
                     var data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
-                    byte[] buffer = await GetImageFromWebAsync(client, data).ConfigureAwait(false);
+                    byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
 
 
                     await imgs.WriteAsync(Task.FromResult(new KeyValuePair<byte[], string>(buffer, data.Path))).ConfigureAwait(false);
@@ -674,14 +699,14 @@ namespace Pixiv
 
             var imgs = new MyChannels<Task<KeyValuePair<byte[], string>>>(imgLoadCount);
 
-            var mhttpclient = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5);
+            var client = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5, 6);
 
 
             Task.Run(() => CreateLoadData(datas, func));
 
             foreach (var item in Enumerable.Range(0, imgLoadCount)) 
             {
-                Task.Run(() => CreateLoadImg(mhttpclient, datas, imgs));
+                Task.Run(() => CreateLoadImg(client, datas, imgs));
             }
 
             return imgs;
@@ -711,6 +736,13 @@ namespace Pixiv
 
     static class InputData
     {
+        public static int Id
+        {
+            get => Preferences.Get(nameof(Id), 66000201);
+
+            set => Preferences.Set(nameof(Id), value);
+        }
+
         public static int Min
         {
             get => Preferences.Get(nameof(Min), 0);
@@ -759,10 +791,12 @@ namespace Pixiv
 
         }
 
-        public static bool Create(string min, string max, string tag, string offset, string count)
+        public static bool Create(string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
+                Id = F(id);
+
                 Min = F(min);
 
                 Max = F(max);
@@ -893,6 +927,8 @@ namespace Pixiv
 
         readonly Awa m_awa = new Awa();
 
+        Func<Task<string>> m_messageFunc;
+
         public MainPage()
         {
             InitializeComponent();
@@ -925,8 +961,6 @@ namespace Pixiv
 
             DataBase.Init(BASE_PATH, CRAWLING_COUNT);
 
-            Crawling.Start(CRAWLING_COUNT);
-
             InitInputView();
 
             Task tt = InitViewText();
@@ -936,6 +970,8 @@ namespace Pixiv
 
         void InitInputView()
         {
+            m_startId_value.Text = InputData.Id.ToString();
+
             m_tag_value.Text = InputData.Tag;
 
             m_min_value.Text = InputData.Min.ToString();
@@ -948,7 +984,7 @@ namespace Pixiv
 
         bool CreateInput()
         {
-            return InputData.Create(m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
+            return InputData.Create(m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
         }
 
 
@@ -956,15 +992,12 @@ namespace Pixiv
         {
             while (true)
             {
-                int id = await DataBase.GetMaxItemId();
+                if(m_messageFunc != null)
+                {
+                    m_viewText.Text = await m_messageFunc();
 
-                string c = Crawling.Status;
-
-                int count = LoadBigImg.Count;
-
-
-
-                m_viewText.Text = $"{id} {c} {count}";
+                    
+                }
 
                 await Task.Delay(new TimeSpan(0, 0, 5));
             }
@@ -1072,6 +1105,53 @@ namespace Pixiv
                     m_awa.SetAdd();
                 }
             }
+        }
+
+        void OnStartFromLastId(object sender, EventArgs e)
+        {
+            m_start_cons.IsVisible = false;
+
+            MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                int id = await DataBase.GetMaxItemId();
+
+                Crawling crawling = Crawling.Start(id, CRAWLING_COUNT, 1000, 6);
+
+                m_messageFunc = () =>
+                {
+                    return Task.FromResult(crawling.Message);
+
+                };
+            });
+        }
+
+        void OnStartFromInputId(object sender, EventArgs e)
+        {
+            if (CreateInput())
+            {
+                m_start_cons.IsVisible = false;
+
+                MainThread.InvokeOnMainThreadAsync(() =>
+                {
+                    int id = InputData.Id;
+
+
+                    Crawling crawling = Crawling.Start(id, CRAWLING_COUNT, 1000, 6);
+
+
+                    m_messageFunc = () =>
+                    {
+                        InputData.Id = crawling.Id;
+
+                        return Task.FromResult(crawling.Message);
+
+                    };
+                });
+            }
+            else
+            {
+                Task t = DisplayAlert("错误", "必须输入参数", "确定");
+            }  
         }
     }
 }

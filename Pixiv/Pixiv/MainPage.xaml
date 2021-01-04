@@ -5,6 +5,15 @@
              xmlns:data="clr-namespace:Pixiv">
     <StackLayout>
         <Label x:Name="m_viewText"></Label>
+        <StackLayout x:Name="m_start_cons">
+            <Button Text="从最后ID开始爬取"
+                    Clicked="OnStartFromLastId"></Button>
+            <Entry x:Name="m_startId_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            <Button Text="从输入ID开始爬取"
+                    Clicked="OnStartFromInputId"></Button>
+        </StackLayout>
         <StackLayout x:Name="m_cons">
             <StackLayout Orientation="Horizontal">
                 <Label Text="Min"></Label>
@@ -40,7 +49,7 @@
                         Scrolled="OnScrolled">
             <CollectionView.ItemsLayout>
                 <GridItemsLayout Orientation="Vertical" 
-                                 Span="3"
+                                 Span="2"
                                  SnapPointsType="Mandatory"
                                  SnapPointsAlignment="End"/>
             </CollectionView.ItemsLayout>

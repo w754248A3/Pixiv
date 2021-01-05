@@ -159,16 +159,17 @@ namespace Pixiv
 
         static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
         {
-            foreach (var item in Enumerable.Range(0, reloadCount))
+            foreach (var item in Enumerable.Range(1, reloadCount))
             {
                 try
                 {
                     return await func().ConfigureAwait(false);
                 }
                 catch (MHttpClientException e)
-                when (e.InnerException.GetType() == typeof(FormatException))
+                when (e.InnerException is ObjectDisposedException ||
+                        e.InnerException is IOException)
                 {
-                    await Task.Delay(new TimeSpan(0, 0, item % 3)).ConfigureAwait(false);
+                    
                 }
             }
 
@@ -365,8 +366,6 @@ namespace Pixiv
                 await s_slim.WaitAsync().ConfigureAwait(false);
 
 
-                //return Catch(func);
-
                 return func();
             }
             finally
@@ -497,7 +496,7 @@ namespace Pixiv
                     await DataBase.Add(data).ConfigureAwait(false);
                 }
                 catch (MHttpClientException e)
-                when (e.InnerException.GetType() == typeof(FormatException))
+                when (e.InnerException.GetType() == typeof(MHttpResponseException))
                 {
                     if (m_count.IsReturn())
                     {
@@ -609,6 +608,10 @@ namespace Pixiv
                 m_count.AddCount();
 
                 await Load(path).ConfigureAwait(false);
+            }
+            catch (MHttpClientException)
+            {
+
             }
             finally
             {
@@ -910,9 +913,13 @@ namespace Pixiv
 
         const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 64;
+        const int CRAWLING_COUNT = 16;
 
         const int LOADIMG_COUNT = 6;
+
+        const int MAX_EX_COUNT = 1000;
+
+        const int RE_LOADcOUNT = 3;
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
@@ -927,7 +934,9 @@ namespace Pixiv
 
         readonly Awa m_awa = new Awa();
 
-        Func<Task<string>> m_messageFunc;
+        Crawling m_crawling;
+
+        Action m_action;
 
         public MainPage()
         {
@@ -992,11 +1001,18 @@ namespace Pixiv
         {
             while (true)
             {
-                if(m_messageFunc != null)
+                if(m_crawling is null)
                 {
-                    m_viewText.Text = await m_messageFunc();
+                    m_viewText.Text = $"D:{m_download.Count}";
+                }
+                else
+                {
+                    m_viewText.Text = $"{m_crawling.Message} D:{m_download.Count}";
+                }
 
-                    
+                if(m_action != null)
+                {
+                    m_action();
                 }
 
                 await Task.Delay(new TimeSpan(0, 0, 5));
@@ -1062,9 +1078,7 @@ namespace Pixiv
 
                     await Task.Delay(1000);
                 }
-                catch (MHttpClientException e) 
-                when (e.InnerException.GetType() == typeof(MHttpException) ||
-                        e.InnerException.GetType() == typeof(IOException))
+                catch (MHttpClientException) 
                 {
 
                 }
@@ -1115,13 +1129,8 @@ namespace Pixiv
             {
                 int id = await DataBase.GetMaxItemId();
 
-                Crawling crawling = Crawling.Start(id, CRAWLING_COUNT, 1000, 6);
+                m_crawling = Crawling.Start(id, CRAWLING_COUNT, MAX_EX_COUNT, RE_LOADcOUNT);
 
-                m_messageFunc = () =>
-                {
-                    return Task.FromResult(crawling.Message);
-
-                };
             });
         }
 
@@ -1136,16 +1145,10 @@ namespace Pixiv
                     int id = InputData.Id;
 
 
-                    Crawling crawling = Crawling.Start(id, CRAWLING_COUNT, 1000, 6);
+                    m_crawling = Crawling.Start(id, CRAWLING_COUNT, MAX_EX_COUNT, RE_LOADcOUNT);
 
 
-                    m_messageFunc = () =>
-                    {
-                        InputData.Id = crawling.Id;
-
-                        return Task.FromResult(crawling.Message);
-
-                    };
+                    m_action = () => InputData.Id = m_crawling.Id;
                 });
             }
             else

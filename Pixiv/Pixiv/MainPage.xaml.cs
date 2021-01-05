@@ -342,15 +342,33 @@ namespace Pixiv
             
         }
 
-       
-        static List<PixivData> Select_(int minMark, int maxMark, int offset, int count)
+        static string CreateQueryLine(int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            return s_connection.Query<PixivData>($"SELECT * FROM {nameof(PixivData)} WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark} ORDER BY {nameof(PixivData.Mark)} DESC LIMIT {count} OFFSET {offset}");
+            string s = $"SELECT * FROM {nameof(PixivData)}";
+
+            s += $" WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark}";
+
+            if (string.IsNullOrWhiteSpace(tag) == false)
+            {
+                s += $" AND {nameof(PixivData.Tags)} LIKE '%{tag}%'";
+            }
+
+
+            if(string.IsNullOrWhiteSpace(notTag) == false)
+            {
+                s += $" AND {nameof(PixivData.Tags)} NOT LIKE '%{notTag}%'";
+            }
+
+            s += $" ORDER BY {nameof(PixivData.Mark)} DESC";
+
+            s += $" LIMIT {count} OFFSET {offset}";
+
+            return s;
         }
 
-        static List<PixivData> Select_(int minMark, int maxMark, string tag, int offset, int count)
+        static List<PixivData> Select_(string s)
         {
-            return s_connection.Query<PixivData>($"SELECT * FROM {nameof(PixivData)} WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark} AND {nameof(PixivData.Tags)} LIKE '%{tag}%' ORDER BY {nameof(PixivData.Mark)} DESC LIMIT {count} OFFSET {offset}");
+            return s_connection.Query<PixivData>(s);
         }
 
         static Task<T> F<T>(Func<T> func)
@@ -375,15 +393,9 @@ namespace Pixiv
 
         }
 
-
-        public static Task<List<PixivData>> Select(int minMark, int maxMark, int offset, int count)
+        public static Task<List<PixivData>> Select(int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            return F(() => Select_(minMark, maxMark, offset, count));
-        }
-
-        public static Task<List<PixivData>> Select(int minMark, int maxMark, string tag, int offset, int count)
-        {
-            return F(() => Select_(minMark, maxMark, tag, offset, count));
+            return F(() => Select_(CreateQueryLine(minMark, maxMark, tag, notTag, offset, count)));
         }
 
 
@@ -641,7 +653,7 @@ namespace Pixiv
             return func(uri, referer);
         }
 
-        static async Task CreateLoadImg(Func<Uri, Uri, Task<byte[]>> func, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<KeyValuePair<byte[], string>>> imgs)
+        static async Task CreateLoadImg(Func<Uri, Uri, Task<byte[]>> func, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<Data>> imgs)
         {
             while (true)
             {
@@ -653,13 +665,13 @@ namespace Pixiv
                     byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
 
 
-                    await imgs.WriteAsync(Task.FromResult(new KeyValuePair<byte[], string>(buffer, data.Path))).ConfigureAwait(false);
+                    await imgs.WriteAsync(Task.FromResult(new Data(buffer, data.Path, data.ItemId))).ConfigureAwait(false);
 
                 }
                 catch (Exception e)
                 {
 
-                    await imgs.WriteAsync(Task.FromException<KeyValuePair<byte[], string>>(e)).ConfigureAwait(false);
+                    await imgs.WriteAsync(Task.FromException<Data>(e)).ConfigureAwait(false);
                 }
 
             }
@@ -695,12 +707,12 @@ namespace Pixiv
         }
 
 
-        public static MyChannels<Task<KeyValuePair<byte[], string>>> Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount)
+        public static MyChannels<Task<Data>> Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount)
         {
 
             var datas = new MyChannels<Task<PixivData>>(dataLoadCount);
 
-            var imgs = new MyChannels<Task<KeyValuePair<byte[], string>>>(imgLoadCount);
+            var imgs = new MyChannels<Task<Data>>(imgLoadCount);
 
             var client = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5, 6);
 
@@ -719,14 +731,18 @@ namespace Pixiv
 
     public sealed class Data
     {
-        public Data(byte[] buffer, string path)
+        public Data(byte[] buffer, string path, int id)
         {
+            Id = id;
+
             Path = path;
 
             Buffer = buffer;
 
             ImageSource = ImageSource.FromStream(() => new MemoryStream(Buffer));
         }
+
+        public int Id { get; }
 
         public string Path { get; }
 
@@ -758,6 +774,13 @@ namespace Pixiv
             get => Preferences.Get(nameof(Max), 10000);
 
             set => Preferences.Set(nameof(Max), value);
+        }
+
+        public static string NotTag
+        {
+            get => Preferences.Get(nameof(NotTag), "漫画");
+
+            set => Preferences.Set(nameof(NotTag), value);
         }
 
         public static string Tag
@@ -794,7 +817,7 @@ namespace Pixiv
 
         }
 
-        public static bool Create(string id, string min, string max, string tag, string offset, string count)
+        public static bool Create(string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
@@ -809,6 +832,8 @@ namespace Pixiv
                 Count = F(count);
 
 
+                NotTag = nottag ?? "";
+
                 Tag = tag ?? "";
 
                 return true;
@@ -821,6 +846,8 @@ namespace Pixiv
 
         public static Func<Task<List<PixivData>>> CreateSelectFunc()
         {
+            string nottag = NotTag;
+
             string tag = Tag;
 
             int min = Min;
@@ -837,17 +864,8 @@ namespace Pixiv
             {
                 int n = offset;
 
-                Task<List<PixivData>> task;
-                if (string.IsNullOrWhiteSpace(tag))
-                {
-                    task = DataBase.Select(min, max, offset, count);
+                var task = DataBase.Select(min, max, tag, nottag, offset, count);
 
-                }
-                else
-                {
-                    task = DataBase.Select(min, max, tag, offset, count);
-
-                }
 
                 offset += count;
 
@@ -979,6 +997,8 @@ namespace Pixiv
 
         void InitInputView()
         {
+            m_nottag_value.Text = InputData.NotTag;
+
             m_startId_value.Text = InputData.Id.ToString();
 
             m_tag_value.Text = InputData.Tag;
@@ -993,7 +1013,7 @@ namespace Pixiv
 
         bool CreateInput()
         {
-            return InputData.Create(m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
+            return InputData.Create(m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
         }
 
 
@@ -1072,9 +1092,9 @@ namespace Pixiv
                 {
                     await m_awa.Get();
 
-                    var item = await await imgs.ReadAsync();
+                    var data = await await imgs.ReadAsync();
 
-                    await SetImage(new Data(item.Key, item.Value));
+                    await SetImage(data);
 
                     await Task.Delay(1000);
                 }
@@ -1097,8 +1117,11 @@ namespace Pixiv
         {
             if (m_collView.SelectedItem != null)
             {
+                Data data = (Data)m_collView.SelectedItem;
 
-                m_download.Add(((Data)m_collView.SelectedItem).Path);
+                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri);
+
+                m_download.Add(data.Path);
 
                 m_collView.SelectedItem = null;
             }

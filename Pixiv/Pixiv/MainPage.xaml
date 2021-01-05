@@ -34,6 +34,12 @@
                        Keyboard="Text"></Entry>
             </StackLayout>
             <StackLayout Orientation="Horizontal">
+                <Label Text="NotTag"></Label>
+                <Entry x:Name="m_nottag_value"
+                       WidthRequest="200"
+                       Keyboard="Text"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
                 <Label Text="Offset"></Label>
                 <Entry x:Name="m_offset_value"
                        WidthRequest="200"

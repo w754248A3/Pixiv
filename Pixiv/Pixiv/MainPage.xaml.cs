@@ -342,6 +342,11 @@ namespace Pixiv
             
         }
 
+        static PixivData Find_(int id)
+        {
+            return s_connection.Find<PixivData>(id);
+        }
+
         static string CreateQueryLine(int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
             string s = $"SELECT * FROM {nameof(PixivData)}";
@@ -407,6 +412,11 @@ namespace Pixiv
         public static Task Add(PixivData data)
         {
             return F(() => Add_(data));
+        }
+
+        public static Task<PixivData> Find(int id)
+        {
+            return F(() => Find_(id));
         }
     }
 
@@ -939,12 +949,15 @@ namespace Pixiv
 
         const int RE_LOADcOUNT = 3;
 
+
+        const int DATEBASE_BUFFER_COUNT = 100;
+
+
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
         const string BASE_PATH = ROOT_PATH + "database/";
       
         const string IMG_PATH = ROOT_PATH + "img/";
-
 
         readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
 
@@ -986,7 +999,7 @@ namespace Pixiv
 
 
 
-            DataBase.Init(BASE_PATH, CRAWLING_COUNT);
+            DataBase.Init(BASE_PATH, DATEBASE_BUFFER_COUNT);
 
             InitInputView();
 

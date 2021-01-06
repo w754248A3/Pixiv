@@ -16,14 +16,26 @@
         </StackLayout>
         <StackLayout x:Name="m_cons">
             <StackLayout Orientation="Horizontal">
-                <Label Text="Min"></Label>
+                <Label Text="MinMark"></Label>
                 <Entry x:Name="m_min_value"
                        WidthRequest="200"
                        Keyboard="Numeric"></Entry>
             </StackLayout>
             <StackLayout Orientation="Horizontal">
-                <Label Text="Max"></Label>
+                <Label Text="MaxMark"></Label>
                 <Entry x:Name="m_max_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="MinId"></Label>
+                <Entry x:Name="m_min_id_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="MaxId"></Label>
+                <Entry x:Name="m_max_id_value"
                        WidthRequest="200"
                        Keyboard="Numeric"></Entry>
             </StackLayout>

@@ -347,11 +347,18 @@ namespace Pixiv
             return s_connection.Find<PixivData>(id);
         }
 
-        static string CreateQueryLine(int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        static string CreateQueryLine((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
             string s = $"SELECT * FROM {nameof(PixivData)}";
 
             s += $" WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark}";
+
+            if (idSpan.HasValue)
+            {
+                var v = idSpan.Value;
+
+                s += $" AND {nameof(PixivData.ItemId)} >= {v.minId} AND {nameof(PixivData.ItemId)} <= {v.maxId}";
+            }
 
             if (string.IsNullOrWhiteSpace(tag) == false)
             {
@@ -398,9 +405,9 @@ namespace Pixiv
 
         }
 
-        public static Task<List<PixivData>> Select(int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        public static Task<List<PixivData>> Select((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            return F(() => Select_(CreateQueryLine(minMark, maxMark, tag, notTag, offset, count)));
+            return F(() => Select_(CreateQueryLine(idSpan, minMark, maxMark, tag, notTag, offset, count)));
         }
 
 
@@ -772,6 +779,21 @@ namespace Pixiv
             set => Preferences.Set(nameof(Id), value);
         }
 
+        public static string MinId
+        {
+            get => Preferences.Get(nameof(MinId), "80000201");
+
+            set => Preferences.Set(nameof(MinId), value);
+        }
+
+
+        public static string MaxId
+        {
+            get => Preferences.Get(nameof(MaxId), "88000201");
+
+            set => Preferences.Set(nameof(MaxId), value);
+        }
+
         public static int Min
         {
             get => Preferences.Get(nameof(Min), 0);
@@ -827,10 +849,37 @@ namespace Pixiv
 
         }
 
-        public static bool Create(string nottag, string id, string min, string max, string tag, string offset, string count)
+        static (int minId, int maxId)? CreateIdSpan(string minId, string maxId)
+        {
+            int min = F(minId);
+
+            int max = F(maxId);
+
+            if (min >= 0 && min < max) 
+            {
+                return (min, max);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        public static bool Create(string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
+
+                if (CreateIdSpan(minId, maxId).HasValue == false)
+                {
+                    return false;
+                }
+
+                MinId = minId ?? "";
+
+                MaxId = maxId ?? "";
+
+
                 Id = F(id);
 
                 Min = F(min);
@@ -868,13 +917,13 @@ namespace Pixiv
 
             int count = Count;
 
-
+            var idSpan = CreateIdSpan(InputData.MinId, InputData.MaxId);
 
             return () =>
             {
                 int n = offset;
 
-                var task = DataBase.Select(min, max, tag, nottag, offset, count);
+                var task = DataBase.Select(idSpan, min, max, tag, nottag, offset, count);
 
 
                 offset += count;
@@ -1010,6 +1059,10 @@ namespace Pixiv
 
         void InitInputView()
         {
+            m_max_id_value.Text = InputData.MaxId;
+
+            m_min_id_value.Text = InputData.MinId;
+
             m_nottag_value.Text = InputData.NotTag;
 
             m_startId_value.Text = InputData.Id.ToString();
@@ -1026,7 +1079,7 @@ namespace Pixiv
 
         bool CreateInput()
         {
-            return InputData.Create(m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
+            return InputData.Create(m_min_id_value.Text, m_max_id_value.Text, m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
         }
 
 

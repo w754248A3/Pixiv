@@ -851,6 +851,12 @@ namespace Pixiv
 
         static (int minId, int maxId)? CreateIdSpan(string minId, string maxId)
         {
+            if(string.IsNullOrWhiteSpace(minId) ||
+               string.IsNullOrWhiteSpace(maxId))
+            {
+                return null;
+            }
+
             int min = F(minId);
 
             int max = F(maxId);
@@ -990,7 +996,7 @@ namespace Pixiv
 
         const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 16;
+        const int CRAWLING_COUNT = 64;
 
         const int LOADIMG_COUNT = 6;
 

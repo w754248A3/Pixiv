@@ -125,22 +125,24 @@ namespace Pixiv
 
                     return;
                 }
-                catch(SocketException e)
+                catch(SocketException)
                 {
-                    var c = e.SocketErrorCode;
-                   
-                    if (c == SocketError.TryAgain ||
-                        c == SocketError.TimedOut ||
-                        c == SocketError.NetworkUnreachable ||
-                        c == SocketError.NetworkDown ||
-                        c == SocketError.HostUnreachable)
-                    {
-                        await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        throw;
-                    }
+                    //var c = e.SocketErrorCode;
+
+                    //if (c == SocketError.TryAgain ||
+                    //    c == SocketError.TimedOut ||
+                    //    c == SocketError.NetworkUnreachable ||
+                    //    c == SocketError.NetworkDown ||
+                    //    c == SocketError.HostUnreachable)
+                    //{
+                    //    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+                    //}
+                    //else
+                    //{
+                    //    throw;
+                    //}
+
+                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
                 }
             }
 

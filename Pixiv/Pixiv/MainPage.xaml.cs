@@ -115,38 +115,40 @@ namespace Pixiv
     {
         const string HOST = "www.pixivision.net";
 
-        static async Task CreateConnectAsync(Socket socket, Uri uri)
+        static Task CreateConnectAsync(Socket socket, Uri uri)
         {
-            while (true)
-            {
-                try
-                {
-                    await socket.ConnectAsync(HOST, 443).ConfigureAwait(false);
+            return socket.ConnectAsync(HOST, 443);
 
-                    return;
-                }
-                catch(SocketException)
-                {
-                    //var c = e.SocketErrorCode;
+            //while (true)
+            //{
+            //    try
+            //    {
+            //        await socket.ConnectAsync(HOST, 443).ConfigureAwait(false);
 
-                    //if (c == SocketError.TryAgain ||
-                    //    c == SocketError.TimedOut ||
-                    //    c == SocketError.NetworkUnreachable ||
-                    //    c == SocketError.NetworkDown ||
-                    //    c == SocketError.HostUnreachable)
-                    //{
-                    //    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                    //}
-                    //else
-                    //{
-                    //    throw;
-                    //}
+            //        return;
+            //    }
+            //    catch(SocketException)
+            //    {
+            //        //var c = e.SocketErrorCode;
 
-                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                }
-            }
+            //        //if (c == SocketError.TryAgain ||
+            //        //    c == SocketError.TimedOut ||
+            //        //    c == SocketError.NetworkUnreachable ||
+            //        //    c == SocketError.NetworkDown ||
+            //        //    c == SocketError.HostUnreachable)
+            //        //{
+            //        //    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+            //        //}
+            //        //else
+            //        //{
+            //        //    throw;
+            //        //}
 
-          
+            //        await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+            //    }
+            //}
+
+
         }
 
         static async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
@@ -161,7 +163,8 @@ namespace Pixiv
 
         static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
         {
-            foreach (var item in Enumerable.Range(1, reloadCount))
+
+            while (true)
             {
                 try
                 {
@@ -169,13 +172,13 @@ namespace Pixiv
                 }
                 catch (MHttpClientException e)
                 when (e.InnerException is ObjectDisposedException ||
-                        e.InnerException is IOException)
+                        e.InnerException is IOException ||
+                        e.InnerException is SocketException)
                 {
-                    
+                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
                 }
             }
 
-            return await func().ConfigureAwait(false);
         }
 
         public static Func<Uri, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount)
@@ -187,7 +190,14 @@ namespace Pixiv
                 AuthenticateCallback = CreateAuthenticateAsync,
 
                 MaxStreamPoolCount = checked(maxStreamPoolCount * 2)
+
+  
             });
+
+            client.ConnectTimeOut = new TimeSpan(0, 0, 6);
+
+
+            client.ResponseTimeOut = new TimeSpan(0, 0, 9);
 
 
             return (uri) =>
@@ -202,6 +212,7 @@ namespace Pixiv
             {
                 MaxStreamPoolCount = checked(maxStreamPoolCount * 2),
                 MaxResponseSize = maxResponseSize
+                
             });
 
             return (uri, referer) =>
@@ -298,7 +309,9 @@ namespace Pixiv
 
         static int GetMaxItemId_()
         {
-            var datas = s_connection.Query<PixivData>($"SELECT {nameof(PixivData.ItemId)} FROM {nameof(PixivData)} ORDER BY {nameof(PixivData.ItemId)} DESC LIMIT 1");
+            //var datas = s_connection.Query<PixivData>($"SELECT {nameof(PixivData.ItemId)} FROM {nameof(PixivData)} ORDER BY {nameof(PixivData.ItemId)} DESC LIMIT 1");
+
+            var datas = s_connection.Table<PixivData>().OrderByDescending((v) => v.ItemId).Take(1).ToList();
 
             if (datas.Count == 0)
             {
@@ -317,23 +330,20 @@ namespace Pixiv
 
             if (s_list.Count >= s_maxCount)
             {
+                var vs = s_list.ToArray();
 
-                try
+                s_list.Clear();
+
+                s_connection.RunInTransaction(() =>
                 {
-                    s_connection.BeginTransaction();
 
-
-                    foreach (var item in s_list)
+                    foreach (var item in vs)
                     {
                         s_connection.InsertOrReplace(item);
                     }
 
-                    s_list.Clear();
-                }
-                finally
-                {
-                    s_connection.Commit();
-                }
+                });
+
 
                 return null;
             }
@@ -349,40 +359,64 @@ namespace Pixiv
             return s_connection.Find<PixivData>(id);
         }
 
-        static string CreateQueryLine((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        static List<PixivData> Select_((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            string s = $"SELECT * FROM {nameof(PixivData)}";
+            //string s = $"SELECT * FROM {nameof(PixivData)}";
 
-            s += $" WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark}";
+            //s += $" WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark}";
+
+            //if (idSpan.HasValue)
+            //{
+            //    var v = idSpan.Value;
+
+            //    s += $" AND {nameof(PixivData.ItemId)} >= {v.minId} AND {nameof(PixivData.ItemId)} <= {v.maxId}";
+            //}
+
+            //if (string.IsNullOrWhiteSpace(tag) == false)
+            //{
+            //    s += $" AND {nameof(PixivData.Tags)} LIKE '%{tag}%'";
+            //}
+
+
+            //if (string.IsNullOrWhiteSpace(notTag) == false)
+            //{
+            //    s += $" AND {nameof(PixivData.Tags)} NOT LIKE '%{notTag}%'";
+            //}
+
+            //s += $" ORDER BY {nameof(PixivData.Mark)} DESC";
+
+            //s += $" LIMIT {count} OFFSET {offset}";
+
+            //return s;
+
+
+            var query = s_connection.Table<PixivData>();
+
+            query = query.Where((v) => v.Mark >= minMark && v.Mark <= maxMark);
 
             if (idSpan.HasValue)
             {
-                var v = idSpan.Value;
+                var (minId, maxId) = idSpan.Value;
 
-                s += $" AND {nameof(PixivData.ItemId)} >= {v.minId} AND {nameof(PixivData.ItemId)} <= {v.maxId}";
+                query = query.Where((v) => v.ItemId >= minId && v.ItemId <= maxId);
+
             }
 
             if (string.IsNullOrWhiteSpace(tag) == false)
             {
-                s += $" AND {nameof(PixivData.Tags)} LIKE '%{tag}%'";
+                query = query.Where((v) => v.Tags.Contains(tag));
             }
 
 
             if(string.IsNullOrWhiteSpace(notTag) == false)
             {
-                s += $" AND {nameof(PixivData.Tags)} NOT LIKE '%{notTag}%'";
+                query = query.Where((v) => !v.Tags.Contains(notTag));
             }
 
-            s += $" ORDER BY {nameof(PixivData.Mark)} DESC";
+            query = query.OrderByDescending((v) => v.Mark);
 
-            s += $" LIMIT {count} OFFSET {offset}";
+            return query.Skip(offset).Take(count).ToList();
 
-            return s;
-        }
-
-        static List<PixivData> Select_(string s)
-        {
-            return s_connection.Query<PixivData>(s);
         }
 
         static Task<T> F<T>(Func<T> func)
@@ -409,7 +443,7 @@ namespace Pixiv
 
         public static Task<List<PixivData>> Select((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            return F(() => Select_(CreateQueryLine(idSpan, minMark, maxMark, tag, notTag, offset, count)));
+            return F(() => Select_(idSpan, minMark, maxMark, tag, notTag, offset, count));
         }
 
 

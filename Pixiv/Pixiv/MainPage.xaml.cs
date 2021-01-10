@@ -8,9 +8,11 @@ using System.IO;
 using System.Linq;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Serialization;
 using Xamarin.Essentials;
 using Xamarin.Forms;
 
@@ -799,8 +801,43 @@ namespace Pixiv
 
     }
 
+    sealed class Xml
+    {
+
+        public static string[] GetDeserializeXml(string xml)
+        {
+            XmlSerializer serializer = new XmlSerializer(typeof(string[]));
+
+
+
+            return (string[])serializer.Deserialize(new MemoryStream(Encoding.UTF8.GetBytes(xml)));
+
+
+        }
+
+
+        public static string GetSerializeXml(string[] ss)
+        {
+            XmlSerializer serializer = new XmlSerializer(typeof(string[]));
+
+
+            MemoryStream memoryStream = new MemoryStream();
+
+
+            serializer.Serialize(memoryStream, ss);
+
+
+
+            return Encoding.UTF8.GetString(memoryStream.GetBuffer(), 0, checked((int)memoryStream.Position));
+        }
+
+
+    }
+
     static class InputData
     {
+        
+
         public static int Id
         {
             get => Preferences.Get(nameof(Id), 66000201);
@@ -842,6 +879,13 @@ namespace Pixiv
             get => Preferences.Get(nameof(NotTag), "漫画");
 
             set => Preferences.Set(nameof(NotTag), value);
+        }
+
+        public static string Info
+        {
+            get => Preferences.Get(nameof(Info), "");
+
+            set => Preferences.Set(nameof(Info), value);
         }
 
         public static string Tag
@@ -900,6 +944,45 @@ namespace Pixiv
             }
         }
 
+        public static string[] GetInfo()
+        {
+            string s = InputData.Info;
+
+            if (string.IsNullOrWhiteSpace(s))
+            {
+                return new string[] { };
+            }
+            else
+            {
+                return Xml.GetDeserializeXml(s);
+            }
+        }
+
+        static void SetInfo(string tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag))
+            {
+
+            }
+            else
+            {
+                string s = InputData.Info;
+
+                if (string.IsNullOrWhiteSpace(s))
+                {
+                    InputData.Info = Xml.GetSerializeXml(new string[] { tag });
+                }
+                else
+                {
+                    var ss = Xml.GetDeserializeXml(s).Append(tag).ToArray();
+
+                    ss = (new HashSet<string>(ss)).ToArray(); 
+
+                    InputData.Info = Xml.GetSerializeXml(ss);
+                }
+            }
+        }
+
         public static bool Create(string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
@@ -929,6 +1012,8 @@ namespace Pixiv
                 NotTag = nottag ?? "";
 
                 Tag = tag ?? "";
+
+                SetInfo(tag);
 
                 return true;
             }
@@ -1094,6 +1179,8 @@ namespace Pixiv
 
         void InitInputView()
         {
+            m_tag_value_histry.ItemsSource = InputData.GetInfo();
+
             m_max_id_value.Text = InputData.MaxId;
 
             m_min_id_value.Text = InputData.MinId;
@@ -1279,6 +1366,23 @@ namespace Pixiv
             {
                 Task t = DisplayAlert("错误", "必须输入参数", "确定");
             }  
+        }
+
+        void OnTagEntryFocused(object sender, FocusEventArgs e)
+        {
+            m_tag_value_histry.IsVisible = true;
+        }
+
+        void OnTagEntryUnFocused(object sender, FocusEventArgs e)
+        {
+            m_tag_value_histry.IsVisible = false;
+        }
+
+        void OnTagHistrySelect(object sender, SelectionChangedEventArgs e)
+        {
+            m_tag_value.Text = m_tag_value_histry.SelectedItem.ToString();
+
+            m_tag_value_histry.IsVisible = false;
         }
     }
 }

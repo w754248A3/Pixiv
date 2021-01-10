@@ -39,11 +39,25 @@
                        WidthRequest="200"
                        Keyboard="Numeric"></Entry>
             </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="Tag"></Label>
-                <Entry x:Name="m_tag_value"
+            <StackLayout>
+                <CollectionView x:Name="m_tag_value_histry"
+                                SelectionMode="Single"
+                                SelectionChanged="OnTagHistrySelect"
+                                IsVisible="false">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Label Text="{Binding}"></Label>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+                <StackLayout Orientation="Horizontal">
+                    <Label Text="Tag"></Label>
+                    <Entry x:Name="m_tag_value"
                        WidthRequest="200"
-                       Keyboard="Text"></Entry>
+                       Keyboard="Text"
+                       Focused="OnTagEntryFocused"
+                       Unfocused="OnTagEntryUnFocused"></Entry>
+                </StackLayout>
             </StackLayout>
             <StackLayout Orientation="Horizontal">
                 <Label Text="NotTag"></Label>

@@ -161,9 +161,8 @@ namespace Pixiv
             return sslStream;
         }
 
-        static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
+        static async Task<T> CatchSocketExceptionAsync<T>(Func<Task<T>> func)
         {
-
             while (true)
             {
                 try
@@ -171,14 +170,32 @@ namespace Pixiv
                     return await func().ConfigureAwait(false);
                 }
                 catch (MHttpClientException e)
-                when (e.InnerException is ObjectDisposedException ||
-                        e.InnerException is IOException ||
-                        e.InnerException is SocketException)
+                when (e.InnerException is SocketException)
                 {
                     await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
                 }
             }
 
+
+        }
+
+        static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
+        {
+
+            foreach (var item in Enumerable.Range(0, reloadCount))
+            {
+                try
+                {
+                    return await CatchSocketExceptionAsync(func).ConfigureAwait(false);
+                }
+                catch (MHttpClientException e)
+                when (e.InnerException is OperationCanceledException)
+                {
+                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+                }
+            }
+
+            return await CatchSocketExceptionAsync(func).ConfigureAwait(false);
         }
 
         public static Func<Uri, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount)
@@ -206,7 +223,7 @@ namespace Pixiv
             };
         }
 
-        public static Func<Uri, Uri, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, int reloadCount)
+        public static Func<Uri, Uri, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, int reloadCount, TimeSpan timeOut)
         {
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
@@ -214,6 +231,8 @@ namespace Pixiv
                 MaxResponseSize = maxResponseSize
                 
             });
+
+            client.ResponseTimeOut = timeOut;
 
             return (uri, referer) =>
             {
@@ -309,8 +328,7 @@ namespace Pixiv
 
         static int GetMaxItemId_()
         {
-            //var datas = s_connection.Query<PixivData>($"SELECT {nameof(PixivData.ItemId)} FROM {nameof(PixivData)} ORDER BY {nameof(PixivData.ItemId)} DESC LIMIT 1");
-
+           
             var datas = s_connection.Table<PixivData>().OrderByDescending((v) => v.ItemId).Take(1).ToList();
 
             if (datas.Count == 0)
@@ -326,32 +344,35 @@ namespace Pixiv
 
         static object Add_(PixivData data)
         {
-            s_list.Add(data);
+            //s_list.Add(data);
 
-            if (s_list.Count >= s_maxCount)
-            {
-                var vs = s_list.ToArray();
+            //if (s_list.Count >= s_maxCount)
+            //{
+            //    var vs = s_list.ToArray();
 
-                s_list.Clear();
+            //    s_list.Clear();
 
-                s_connection.RunInTransaction(() =>
-                {
+            //    s_connection.RunInTransaction(() =>
+            //    {
 
-                    foreach (var item in vs)
-                    {
-                        s_connection.InsertOrReplace(item);
-                    }
+            //        foreach (var item in vs)
+            //        {
+            //            s_connection.InsertOrReplace(item);
+            //        }
 
-                });
+            //    });
 
 
-                return null;
-            }
-            else
-            {
-                return null; 
-            }
-            
+            //    return null;
+            //}
+            //else
+            //{
+            //    return null; 
+            //}
+
+            s_connection.InsertOrReplace(data);
+
+            return null;
         }
 
         static PixivData Find_(int id)
@@ -361,35 +382,7 @@ namespace Pixiv
 
         static List<PixivData> Select_((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            //string s = $"SELECT * FROM {nameof(PixivData)}";
-
-            //s += $" WHERE {nameof(PixivData.Mark)} >= {minMark} AND {nameof(PixivData.Mark)} <= {maxMark}";
-
-            //if (idSpan.HasValue)
-            //{
-            //    var v = idSpan.Value;
-
-            //    s += $" AND {nameof(PixivData.ItemId)} >= {v.minId} AND {nameof(PixivData.ItemId)} <= {v.maxId}";
-            //}
-
-            //if (string.IsNullOrWhiteSpace(tag) == false)
-            //{
-            //    s += $" AND {nameof(PixivData.Tags)} LIKE '%{tag}%'";
-            //}
-
-
-            //if (string.IsNullOrWhiteSpace(notTag) == false)
-            //{
-            //    s += $" AND {nameof(PixivData.Tags)} NOT LIKE '%{notTag}%'";
-            //}
-
-            //s += $" ORDER BY {nameof(PixivData.Mark)} DESC";
-
-            //s += $" LIMIT {count} OFFSET {offset}";
-
-            //return s;
-
-
+            
             var query = s_connection.Table<PixivData>();
 
             query = query.Where((v) => v.Mark >= minMark && v.Mark <= maxMark);
@@ -638,7 +631,7 @@ namespace Pixiv
             m_basePath = basePath;
 
 
-            m_client = CreatePixivMHttpClient.Create(6, 1024 * 1024 * 20, 6);
+            m_client = CreatePixivMHttpClient.Create(6, 1024 * 1024 * 20, 6, new TimeSpan(0, 2, 0));
         }
 
         async Task SaveImage(byte[] buffer)
@@ -767,7 +760,7 @@ namespace Pixiv
 
             var imgs = new MyChannels<Task<Data>>(imgLoadCount);
 
-            var client = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5, 6);
+            var client = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5, 6, new TimeSpan(0, 0, 15));
 
 
             Task.Run(() => CreateLoadData(datas, func));

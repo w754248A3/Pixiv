@@ -685,10 +685,31 @@ namespace Pixiv
         }
     }
 
-    static class EnumImage
+    sealed class ReLoad
     {
-        
+        MyChannels<Task<Data>> m_channels;
 
+        Action m_Complete;
+
+        private ReLoad(MyChannels<Task<Data>> channels, Action complete)
+        {
+            m_channels = channels;
+            m_Complete = complete;
+        }
+
+        public Task<Task<Data>> ReadAsync()
+        {
+           
+            return m_channels.ReadAsync();
+        } 
+
+
+        public void Complete()
+        {
+            m_Complete();
+
+            m_channels.CompleteAdding();
+        }
 
         static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, Task<byte[]>> func, PixivData data)
         {
@@ -703,70 +724,88 @@ namespace Pixiv
 
         static async Task CreateLoadImg(Func<Uri, Uri, Task<byte[]>> func, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<Data>> imgs)
         {
-            while (true)
+            try
             {
-                try
+                while (true)
                 {
-                    PixivData data;
                     try
                     {
+                        PixivData data;
+                        try
+                        {
 
-                        data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
+                            data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
+
+                        }
+                        catch (MyChannelsCompletedException)
+                        {
+                            return;
+                        }
+
+                        byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
+
+
+                        await imgs.WriteAsync(Task.FromResult(new Data(buffer, data.Path, data.ItemId))).ConfigureAwait(false);
 
                     }
-                    catch (MyChannelsCompletedException)
+                    catch (Exception e)
                     {
-                        return;
+
+                        await imgs.WriteAsync(Task.FromException<Data>(e)).ConfigureAwait(false);
                     }
 
-                    byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
-
-
-                    await imgs.WriteAsync(Task.FromResult(new Data(buffer, data.Path, data.ItemId))).ConfigureAwait(false);
-
                 }
-                catch (Exception e)
-                {
-
-                    await imgs.WriteAsync(Task.FromException<Data>(e)).ConfigureAwait(false);
-                }
+            }
+            catch (MyChannelsCompletedException)
+            {
 
             }
+
+            
         }
 
         static async Task CreateLoadData(MyChannels<Task<PixivData>> coll, Func<Task<List<PixivData>>> func)
         {
             try
             {
-
-                while (true)
+                try
                 {
 
-                    var list = await func().ConfigureAwait(false);
-
-                    if (list.Count == 0)
+                    while (true)
                     {
-                        coll.CompleteAdding();
 
-                        return;
+                        var list = await func().ConfigureAwait(false);
+
+                        if (list.Count == 0)
+                        {
+                            coll.CompleteAdding();
+
+                            return;
+                        }
+
+                        foreach (var item in list)
+                        {
+                            await coll.WriteAsync(Task.FromResult(item)).ConfigureAwait(false);
+                        }
+
                     }
-
-                    foreach (var item in list)
-                    {
-                        await coll.WriteAsync(Task.FromResult(item)).ConfigureAwait(false);
-                    }
-
+                }
+                catch (Exception e)
+                {
+                    await coll.WriteAsync(Task.FromException<PixivData>(e)).ConfigureAwait(false);
                 }
             }
-            catch(Exception e)
+            catch (MyChannelsCompletedException)
             {
-                await coll.WriteAsync(Task.FromException<PixivData>(e)).ConfigureAwait(false);
+
             }
+
+            
 
         }
 
 
-        public static MyChannels<Task<Data>> Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount)
+        public static ReLoad Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount)
         {
 
             var datas = new MyChannels<Task<PixivData>>(dataLoadCount);
@@ -800,7 +839,7 @@ namespace Pixiv
                 }
             });
 
-            return imgs;
+            return new ReLoad(imgs, datas.CompleteAdding);
         }
     }
 
@@ -1168,6 +1207,8 @@ namespace Pixiv
 
         Task m_viewTask;
 
+        ReLoad m_reload;
+
         public MainPage()
         {
             InitializeComponent();
@@ -1289,6 +1330,18 @@ namespace Pixiv
                 m_cons.IsVisible = false;
 
                 m_viewTask = Start();
+
+                m_viewTask.ContinueWith((t) =>
+                {
+                    MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        m_imageSources.Clear();
+
+                        m_cons.IsVisible = true;
+
+                    });
+
+                });
             }
         }
 
@@ -1316,7 +1369,9 @@ namespace Pixiv
         async Task Start()
         {
 
-            var imgs = EnumImage.Create(InputData.CreateSelectFunc(), 64, LOADIMG_COUNT);
+            var imgs = ReLoad.Create(InputData.CreateSelectFunc(), 64, LOADIMG_COUNT);
+
+            m_reload = imgs;
 
             while (true)
             {
@@ -1349,7 +1404,19 @@ namespace Pixiv
 
         protected override bool OnBackButtonPressed()
         {
-            Task t = DisplayAlert("消息", "取消中", "确定");
+            if(m_reload is null)
+            {
+
+            }
+            else
+            {
+                m_reload.Complete();
+
+                m_reload = null;
+
+                Task t = DisplayAlert("消息", "取消中", "确定");
+
+            }
 
             return true;
         }

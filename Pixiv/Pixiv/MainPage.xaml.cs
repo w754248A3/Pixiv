@@ -707,8 +707,17 @@ namespace Pixiv
             {
                 try
                 {
+                    PixivData data;
+                    try
+                    {
 
-                    var data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
+                        data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
+
+                    }
+                    catch (MyChannelsCompletedException)
+                    {
+                        return;
+                    }
 
                     byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
 
@@ -737,6 +746,8 @@ namespace Pixiv
 
                     if (list.Count == 0)
                     {
+                        coll.CompleteAdding();
+
                         return;
                     }
 
@@ -767,10 +778,27 @@ namespace Pixiv
 
             Task.Run(() => CreateLoadData(datas, func));
 
+            var list = new List<Task>();
+
             foreach (var item in Enumerable.Range(0, imgLoadCount)) 
             {
-                Task.Run(() => CreateLoadImg(client, datas, imgs));
+                Task t = Task.Run(() => CreateLoadImg(client, datas, imgs));
+
+                list.Add(t);
             }
+
+
+            Task.WhenAll(list.ToArray()).ContinueWith((t) =>
+            {
+                try
+                {
+                    t.Wait();
+                }
+                finally
+                {
+                    imgs.CompleteAdding();
+                }
+            });
 
             return imgs;
         }
@@ -1138,6 +1166,8 @@ namespace Pixiv
 
         Action m_action;
 
+        Task m_viewTask;
+
         public MainPage()
         {
             InitializeComponent();
@@ -1209,16 +1239,31 @@ namespace Pixiv
         {
             while (true)
             {
-                if(m_crawling is null)
+                string s = "";
+               
+                if (m_crawling is null)
                 {
-                    m_viewText.Text = $"D:{m_download.Count}";
+                    
                 }
                 else
                 {
-                    m_viewText.Text = $"{m_crawling.Message} D:{m_download.Count}";
+                    s += $"{m_crawling.Message}";
                 }
 
-                if(m_action != null)
+                s += $" D:{m_download.Count}";
+
+                if(m_viewTask is null)
+                {
+
+                }
+                else
+                {
+                    s += $" V:{m_viewTask.IsCompleted}";
+                }
+
+                m_viewText.Text = s;
+
+                if (m_action != null)
                 {
                     m_action();
                 }
@@ -1243,7 +1288,7 @@ namespace Pixiv
             {
                 m_cons.IsVisible = false;
 
-                Task t = Start();
+                m_viewTask = Start();
             }
         }
 
@@ -1286,6 +1331,10 @@ namespace Pixiv
 
                     await Task.Delay(1000);
                 }
+                catch (MyChannelsCompletedException)
+                {
+                    return;
+                }
                 catch (MHttpClientException) 
                 {
 
@@ -1298,7 +1347,12 @@ namespace Pixiv
             } 
         }
 
-       
+        protected override bool OnBackButtonPressed()
+        {
+            Task t = DisplayAlert("消息", "取消中", "确定");
+
+            return true;
+        }
 
 
         void OnCollectionViewSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1383,6 +1437,11 @@ namespace Pixiv
             m_tag_value.Text = m_tag_value_histry.SelectedItem.ToString();
 
             m_tag_value_histry.IsVisible = false;
+        }
+
+        void OnVisibleStartConsole(object sender, EventArgs e)
+        {
+            m_start_cons.IsVisible = false;
         }
     }
 }

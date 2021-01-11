@@ -13,6 +13,8 @@
                        Keyboard="Numeric"></Entry>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
+            <Button Text="隐藏"
+                    Clicked="OnVisibleStartConsole"></Button>
         </StackLayout>
         <StackLayout x:Name="m_cons">
             <StackLayout Orientation="Horizontal">

@@ -687,9 +687,11 @@ namespace Pixiv
 
     sealed class ReLoad
     {
-        MyChannels<Task<Data>> m_channels;
+        readonly MyChannels<Task<Data>> m_channels;
 
-        Action m_Complete;
+        readonly Action m_Complete;
+
+        bool m_is_complete = false;
 
         private ReLoad(MyChannels<Task<Data>> channels, Action complete)
         {
@@ -699,16 +701,24 @@ namespace Pixiv
 
         public Task<Task<Data>> ReadAsync()
         {
-           
-            return m_channels.ReadAsync();
+            if (m_is_complete)
+            {
+                return Task.FromException<Task<Data>>(new MyChannelsCompletedException());
+            }
+            else
+            {
+                return m_channels.ReadAsync();
+            }          
         } 
 
 
         public void Complete()
         {
-            m_Complete();
+            m_is_complete = true;
 
             m_channels.CompleteAdding();
+
+            m_Complete();
         }
 
         static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, Task<byte[]>> func, PixivData data)
@@ -724,84 +734,69 @@ namespace Pixiv
 
         static async Task CreateLoadImg(Func<Uri, Uri, Task<byte[]>> func, MyChannels<Task<PixivData>> pixivDatas, MyChannels<Task<Data>> imgs)
         {
-            try
+            while (true)
             {
-                while (true)
+                Task<Data> item;
+
+                try
                 {
-                    try
-                    {
-                        PixivData data;
-                        try
-                        {
-
-                            data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
-
-                        }
-                        catch (MyChannelsCompletedException)
-                        {
-                            return;
-                        }
-
-                        byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
+                    PixivData data = await (await pixivDatas.ReadAsync().ConfigureAwait(false)).ConfigureAwait(false);
 
 
-                        await imgs.WriteAsync(Task.FromResult(new Data(buffer, data.Path, data.ItemId))).ConfigureAwait(false);
+                    byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
 
-                    }
-                    catch (Exception e)
-                    {
 
-                        await imgs.WriteAsync(Task.FromException<Data>(e)).ConfigureAwait(false);
-                    }
+                    item = Task.FromResult(new Data(buffer, data.Path, data.ItemId));
 
                 }
-            }
-            catch (MyChannelsCompletedException)
-            {
+                catch (MyChannelsCompletedException)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    item = Task.FromException<Data>(e);
+                   
+                }
+
+                try
+                {
+
+                    await imgs.WriteAsync(item).ConfigureAwait(false);
+                }
+                catch (MyChannelsCompletedException)
+                {
+                    return;
+                }
 
             }
-
-            
         }
 
         static async Task CreateLoadData(MyChannels<Task<PixivData>> coll, Func<Task<List<PixivData>>> func)
         {
-            try
+            while (true)
             {
+                var list = await func().ConfigureAwait(false);
+
+                if (list.Count == 0)
+                {
+                    return;
+                }
+
                 try
                 {
 
-                    while (true)
+                    foreach (var item in list)
                     {
-
-                        var list = await func().ConfigureAwait(false);
-
-                        if (list.Count == 0)
-                        {
-                            coll.CompleteAdding();
-
-                            return;
-                        }
-
-                        foreach (var item in list)
-                        {
-                            await coll.WriteAsync(Task.FromResult(item)).ConfigureAwait(false);
-                        }
-
+                        await coll.WriteAsync(Task.FromResult(item)).ConfigureAwait(false);
                     }
                 }
-                catch (Exception e)
+                catch (MyChannelsCompletedException)
                 {
-                    await coll.WriteAsync(Task.FromException<PixivData>(e)).ConfigureAwait(false);
+                    return;
                 }
-            }
-            catch (MyChannelsCompletedException)
-            {
 
             }
-
-            
-
         }
 
 
@@ -815,7 +810,18 @@ namespace Pixiv
             var client = CreatePixivMHttpClient.Create(imgLoadCount, 1024 * 1024 * 5, 6, new TimeSpan(0, 0, 15));
 
 
-            Task.Run(() => CreateLoadData(datas, func));
+            Task.Run(() => CreateLoadData(datas, func))
+                .ContinueWith((t) =>
+                {
+                    try
+                    {
+                        t.Wait();
+                    }
+                    finally
+                    {
+                        datas.CompleteAdding();
+                    }
+                });
 
             var list = new List<Task>();
 
@@ -1205,7 +1211,7 @@ namespace Pixiv
 
         Action m_action;
 
-        Task m_viewTask;
+        Task m_reloadTask;
 
         ReLoad m_reload;
 
@@ -1293,13 +1299,13 @@ namespace Pixiv
 
                 s += $" D:{m_download.Count}";
 
-                if(m_viewTask is null)
+                if(m_reloadTask is null)
                 {
 
                 }
                 else
                 {
-                    s += $" V:{m_viewTask.IsCompleted}";
+                    s += $" V:{m_reloadTask.IsCompleted}";
                 }
 
                 m_viewText.Text = s;
@@ -1329,19 +1335,11 @@ namespace Pixiv
             {
                 m_cons.IsVisible = false;
 
-                m_viewTask = Start();
+                m_reload = ReLoad.Create(InputData.CreateSelectFunc(), 64, LOADIMG_COUNT);
 
-                m_viewTask.ContinueWith((t) =>
-                {
-                    MainThread.InvokeOnMainThreadAsync(() =>
-                    {
-                        m_imageSources.Clear();
+                m_reloadTask = Start(m_reload);
 
-                        m_cons.IsVisible = true;
-
-                    });
-
-                });
+                
             }
         }
 
@@ -1366,13 +1364,10 @@ namespace Pixiv
 
         
 
-        async Task Start()
+        async Task Start(ReLoad reload)
         {
 
-            var imgs = ReLoad.Create(InputData.CreateSelectFunc(), 64, LOADIMG_COUNT);
-
-            m_reload = imgs;
-
+           
             while (true)
             {
 
@@ -1380,7 +1375,7 @@ namespace Pixiv
                 {
                     await m_awa.Get();
 
-                    var data = await await imgs.ReadAsync();
+                    var data = await await reload.ReadAsync();
 
                     await SetImage(data);
 
@@ -1404,7 +1399,7 @@ namespace Pixiv
 
         protected override bool OnBackButtonPressed()
         {
-            if(m_reload is null)
+            if (m_reload is null || m_reloadTask is null)
             {
 
             }
@@ -1412,9 +1407,25 @@ namespace Pixiv
             {
                 m_reload.Complete();
 
+                m_reloadTask.ContinueWith((t) =>
+                {
+                    MainThread.InvokeOnMainThreadAsync(() =>
+                    {
+                        m_imageSources.Clear();
+
+                        m_cons.IsVisible = true;
+
+                    });
+
+                });
+
                 m_reload = null;
 
-                Task t = DisplayAlert("消息", "取消中", "确定");
+                m_reloadTask = null;
+
+
+                DisplayAlert("消息", "取消中", "确定");
+
 
             }
 

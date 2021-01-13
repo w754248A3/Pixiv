@@ -746,7 +746,7 @@ namespace Pixiv
                     byte[] buffer = await GetImageFromWebAsync(func, data).ConfigureAwait(false);
 
 
-                    item = Task.FromResult(new Data(buffer, data.Path, data.ItemId));
+                    item = Task.FromResult(new Data(buffer, data.Path, data.ItemId, data.Tags));
 
                 }
                 catch (MyChannelsCompletedException)
@@ -852,7 +852,7 @@ namespace Pixiv
 
     public sealed class Data
     {
-        public Data(byte[] buffer, string path, int id)
+        public Data(byte[] buffer, string path, int id, string tags)
         {
             Id = id;
 
@@ -861,6 +861,8 @@ namespace Pixiv
             Buffer = buffer;
 
             ImageSource = ImageSource.FromStream(() => new MemoryStream(Buffer));
+
+            Tags = tags;
         }
 
         public int Id { get; }
@@ -871,7 +873,7 @@ namespace Pixiv
 
         public byte[] Buffer { get; }
 
-
+        public string Tags { get; }
     }
 
     sealed class Xml
@@ -1413,6 +1415,8 @@ namespace Pixiv
                     {
                         m_imageSources.Clear();
 
+                        InitInputView();
+
                         m_cons.IsVisible = true;
 
                     });
@@ -1439,7 +1443,7 @@ namespace Pixiv
             {
                 Data data = (Data)m_collView.SelectedItem;
 
-                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri);
+                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
 
                 m_download.Add(data.Path);
 
@@ -1503,11 +1507,15 @@ namespace Pixiv
         void OnTagEntryFocused(object sender, FocusEventArgs e)
         {
             m_tag_value_histry.IsVisible = true;
+
+            m_nottag_cons.IsVisible = false;
         }
 
         void OnTagEntryUnFocused(object sender, FocusEventArgs e)
         {
             m_tag_value_histry.IsVisible = false;
+
+            m_nottag_cons.IsVisible = true;
         }
 
         void OnTagHistrySelect(object sender, SelectionChangedEventArgs e)
@@ -1515,6 +1523,8 @@ namespace Pixiv
             m_tag_value.Text = m_tag_value_histry.SelectedItem.ToString();
 
             m_tag_value_histry.IsVisible = false;
+
+            m_nottag_cons.IsVisible = true;
         }
 
         void OnVisibleStartConsole(object sender, EventArgs e)

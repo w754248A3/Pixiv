@@ -691,34 +691,26 @@ namespace Pixiv
 
         readonly Action m_Complete;
 
-        bool m_is_complete = false;
-
         private ReLoad(MyChannels<Task<Data>> channels, Action complete)
         {
             m_channels = channels;
             m_Complete = complete;
         }
 
-        public Task<Task<Data>> ReadAsync()
+        public Task<Data> ReadAsync()
         {
-            if (m_is_complete)
-            {
-                return Task.FromException<Task<Data>>(new MyChannelsCompletedException());
-            }
-            else
-            {
-                return m_channels.ReadAsync();
-            }          
+            return Task.Run(() => m_channels.ReadReportCompletedImmediatelyAsync().Unwrap());
         } 
 
 
         public void Complete()
         {
-            m_is_complete = true;
+
+
+            m_Complete();
 
             m_channels.CompleteAdding();
 
-            m_Complete();
         }
 
         static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, Task<byte[]>> func, PixivData data)
@@ -1185,13 +1177,13 @@ namespace Pixiv
 
         const int SELCT_COUNT = 200;
 
-        const int CRAWLING_COUNT = 64;
+        const int CRAWLING_COUNT = 128;
 
         const int LOADIMG_COUNT = 6;
 
         const int MAX_EX_COUNT = 1000;
 
-        const int RE_LOADcOUNT = 3;
+        const int RE_LOADcOUNT = 5;
 
 
         const int DATEBASE_BUFFER_COUNT = 100;
@@ -1377,7 +1369,7 @@ namespace Pixiv
                 {
                     await m_awa.Get();
 
-                    var data = await await reload.ReadAsync();
+                    var data = await reload.ReadAsync();
 
                     await SetImage(data);
 

@@ -1215,13 +1215,17 @@ namespace Pixiv
         const int CRAWLING_TIMEOUT = 30;
 
 
+        const int PIXIVDATA_PRELOAD_COUNT = 200;
 
 
-        const int COLLVIEW_COUNT = 400;
 
-        const int SELCT_COUNT = 200;
+        const int IMG_VIEW_COUNT = 400;
 
+        const int IMG_TIMESPAN = 1;
 
+        const int IMG_FLUSH_TIMESPAN = 6;
+
+        const int MESSAGE_FLUSH_TIMESPAN = 5;
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
@@ -1306,7 +1310,7 @@ namespace Pixiv
 
         bool CreateInput()
         {
-            return InputData.Create(m_min_id_value.Text, m_max_id_value.Text, m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, SELCT_COUNT.ToString());
+            return InputData.Create(m_min_id_value.Text, m_max_id_value.Text, m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, PIXIVDATA_PRELOAD_COUNT.ToString());
         }
 
 
@@ -1343,7 +1347,7 @@ namespace Pixiv
                     m_action();
                 }
 
-                await Task.Delay(new TimeSpan(0, 0, 5));
+                await Task.Delay(new TimeSpan(0, 0, MESSAGE_FLUSH_TIMESPAN));
             }
         } 
 
@@ -1363,7 +1367,7 @@ namespace Pixiv
             {
                 m_cons.IsVisible = false;
 
-                m_reload = Preload.Create(InputData.CreateSelectFunc(), 64, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, SMALL_IMG_RELOAD_COUNT, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
+                m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, SMALL_IMG_RELOAD_COUNT, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
 
                 m_reloadTask = Start(m_reload);
 
@@ -1374,8 +1378,10 @@ namespace Pixiv
         async Task SetImage(Data date)
         {
 
-            if (m_imageSources.Count >= COLLVIEW_COUNT)
+            if (m_imageSources.Count >= IMG_VIEW_COUNT)
             {
+                await Task.Delay(new TimeSpan(0, 0, IMG_FLUSH_TIMESPAN));
+
                 m_imageSources.Clear();
 
                 await Task.Yield();
@@ -1405,7 +1411,7 @@ namespace Pixiv
 
                     await SetImage(data);
 
-                    await Task.Delay(1000);
+                    await Task.Delay(new TimeSpan(0, 0, IMG_TIMESPAN));
                 }
             }
             catch (MyChannelsCompletedException)

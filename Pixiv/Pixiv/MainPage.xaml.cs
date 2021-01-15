@@ -430,6 +430,9 @@ namespace Pixiv
 
             volatile int m_ex_count;
 
+            volatile int m_timeOut_count = 0;
+
+            volatile int m_response_exception_count = 0;
 
             static int InitId(int id)
             {
@@ -489,9 +492,20 @@ namespace Pixiv
 
             }
 
+            public int GetResponseCount()
+            {
+                return m_response_exception_count;
+            }
+
+            void AddResponseCount()
+            {
+                Interlocked.Increment(ref m_response_exception_count);
+            }
 
             public bool IsReturn()
             {
+                AddResponseCount();
+
                 if (Interlocked.Increment(ref m_ex_count) >= m_max_ex_count)
                 {
                     return true;
@@ -500,6 +514,16 @@ namespace Pixiv
                 {
                     return false;
                 }
+            }
+
+            public int GetTimeOutCount()
+            {
+                return m_timeOut_count;
+            }
+
+            public void AddTimeOut()
+            {
+                Interlocked.Increment(ref m_timeOut_count);
             }
         }
 
@@ -512,7 +536,7 @@ namespace Pixiv
 
         public int Id => m_count.Id();
 
-        public string Message => $"Id:{Id} C:{Task.IsCompleted}";
+        public string Message => $"Id:{Id} C:{Task.IsCompleted} T:{m_count.GetTimeOutCount()} R:{m_count.GetResponseCount()}";
 
         private Crawling(int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
         {
@@ -555,6 +579,16 @@ namespace Pixiv
                         return;
                     }
                 }
+                catch(MHttpClientException e)
+                when(e.InnerException is OperationCanceledException)
+                {
+                    m_count.AddTimeOut();
+                }
+                catch(Exception e)
+                {
+                    Log.Write("crawling", e);
+
+                }
             }
         }
 
@@ -573,6 +607,18 @@ namespace Pixiv
 
 
                 return Task.WhenAll(tasks.ToArray());
+            });
+
+            crawling.Task.ContinueWith((t) =>
+            {
+                try
+                {
+                    t.Wait();
+                }
+                catch(Exception e)
+                {
+                    Log.Write("ex", e);
+                }
             });
 
             return crawling;
@@ -1164,7 +1210,7 @@ namespace Pixiv
 
         const int CRAWLING_MAX_EX_COUNT = 1000;
 
-        const int CRAWLING_RELOAD_COUNT = 0;
+        const int CRAWLING_RELOAD_COUNT = 3;
 
         const int CRAWLING_TIMEOUT = 30;
 

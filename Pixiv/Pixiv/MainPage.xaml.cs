@@ -31,6 +31,21 @@ namespace Pixiv
                 File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
             }
         }
+
+        public static void Write(string name, Task task)
+        {
+            task.ContinueWith((t) =>
+            {
+                try
+                {
+                    t.Wait();
+                }
+                catch(Exception e)
+                {
+                    Log.Write(name, e);
+                }
+            });
+        }
     }
 
     static class CreatePixivData
@@ -609,17 +624,7 @@ namespace Pixiv
                 return Task.WhenAll(tasks.ToArray());
             });
 
-            crawling.Task.ContinueWith((t) =>
-            {
-                try
-                {
-                    t.Wait();
-                }
-                catch(Exception e)
-                {
-                    Log.Write("ex", e);
-                }
-            });
+            Log.Write("crawling", crawling.Task);
 
             return crawling;
         }
@@ -1227,6 +1232,9 @@ namespace Pixiv
 
         const int MESSAGE_FLUSH_TIMESPAN = 5;
 
+
+
+
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
         const string BASE_PATH = ROOT_PATH + "database/";
@@ -1252,7 +1260,8 @@ namespace Pixiv
             InitializeComponent();
 
 
-            Task t = Init();
+            Log.Write("Init", Init());
+
         }
 
         async Task Init()
@@ -1281,7 +1290,8 @@ namespace Pixiv
 
             InitInputView();
 
-            Task tt = InitViewText();
+            Log.Write("viewtext", InitViewText());
+           
 
             InitCollView();
         } 
@@ -1371,7 +1381,7 @@ namespace Pixiv
 
                 m_reloadTask = Start(m_reload);
 
-                
+                Log.Write("reload", m_reloadTask);
             }
         }
 

@@ -437,6 +437,9 @@ namespace Pixiv
 
     sealed class Crawling
     {
+
+       
+
         sealed class CrawlingCount
         {
             readonly int m_max_ex_count;
@@ -448,6 +451,8 @@ namespace Pixiv
             volatile int m_timeOut_count = 0;
 
             volatile int m_response_exception_count = 0;
+
+            public Func<int, Task<bool>> SelectIdFunc { get; set; }
 
             static int InitId(int id)
             {
@@ -478,6 +483,8 @@ namespace Pixiv
                 m_id = InitId(id);
 
                 m_ex_count = 0;
+
+                SelectIdFunc = (n) => Task.FromResult(true);
             }
 
 
@@ -486,18 +493,34 @@ namespace Pixiv
                 return m_id;
             }
 
-            public int GetNextId()
+            public async Task<int> GetNextId()
             {
-                int n = Interlocked.Increment(ref m_id);
+                while (true)
+                {
+                    int n = Interlocked.Increment(ref m_id);
 
-                if (n < 0)
-                {
-                    throw new ArgumentOutOfRangeException();
+
+
+                    if (n < 0)
+                    {
+                        throw new ArgumentOutOfRangeException();
+                    }
+                    else
+                    {
+                        bool b = await SelectIdFunc(n).ConfigureAwait(false);
+
+                        if (b)
+                        {
+                            return n;
+                        }
+                        else
+                        {
+                            throw new ArgumentOutOfRangeException();
+                        }
+                    }
                 }
-                else
-                {
-                    return n;
-                }
+
+                
             }
 
             public void Completed()
@@ -562,10 +585,6 @@ namespace Pixiv
 
         }
 
-        int GetNextId()
-        {
-            return m_count.GetNextId();
-        }
 
         async Task WhileAsync()
         {
@@ -574,7 +593,18 @@ namespace Pixiv
 
                 try
                 {
-                    int n = GetNextId();
+                    int n;
+
+                    try
+                    {
+
+                        n = await m_count.GetNextId().ConfigureAwait(false);
+
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        return;
+                    }
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
@@ -607,9 +637,16 @@ namespace Pixiv
             }
         }
 
-        public static Crawling Start(int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
+        public static Crawling Start(int? endId, int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
         {
             Crawling crawling = new Crawling(startId, runCount, maxExCount, reloadCount, responseTimeOut);
+
+            if (endId.HasValue)
+            {
+
+                crawling.m_count.SelectIdFunc = (n) => n <= endId ? Task.FromResult(true) : Task.FromResult(false);
+
+            }
 
             crawling.Task = Task.Run(() =>
             {
@@ -919,7 +956,19 @@ namespace Pixiv
 
     static class InputData
     {
-        
+        public static int EndId
+        {
+            get => Preferences.Get(nameof(EndId), 86000201);
+
+            set => Preferences.Set(nameof(EndId), value);
+        }
+
+        public static int TaskCount
+        {
+            get => Preferences.Get(nameof(TaskCount), 64);
+
+            set => Preferences.Set(nameof(TaskCount), value);
+        }
 
         public static int Id
         {
@@ -1066,7 +1115,7 @@ namespace Pixiv
             }
         }
 
-        public static bool Create(string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
+        public static bool Create(string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
@@ -1080,6 +1129,9 @@ namespace Pixiv
 
                 MaxId = maxId ?? "";
 
+                EndId = F(endId);
+
+                TaskCount = F(taskCount);
 
                 Id = F(id);
 
@@ -1298,6 +1350,10 @@ namespace Pixiv
 
         void InitInputView()
         {
+            m_endId_value.Text = InputData.EndId.ToString();
+
+            m_task_count_value.Text = InputData.TaskCount.ToString();
+
             m_tag_value_histry.ItemsSource = InputData.GetInfo();
 
             m_max_id_value.Text = InputData.MaxId;
@@ -1320,7 +1376,18 @@ namespace Pixiv
 
         bool CreateInput()
         {
-            return InputData.Create(m_min_id_value.Text, m_max_id_value.Text, m_nottag_value.Text, m_startId_value.Text, m_min_value.Text, m_max_value.Text, m_tag_value.Text, m_offset_value.Text, PIXIVDATA_PRELOAD_COUNT.ToString());
+            return InputData.Create(
+                m_endId_value.Text,
+                m_task_count_value.Text,
+                m_min_id_value.Text,
+                m_max_id_value.Text,
+                m_nottag_value.Text,
+                m_startId_value.Text,
+                m_min_value.Text,
+                m_max_value.Text,
+                m_tag_value.Text,
+                m_offset_value.Text,
+                PIXIVDATA_PRELOAD_COUNT.ToString());
         }
 
 
@@ -1509,7 +1576,7 @@ namespace Pixiv
             {
                 int id = await DataBase.GetMaxItemId();
 
-                m_crawling = Crawling.Start(id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                m_crawling = Crawling.Start(null, id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
             });
         }
@@ -1524,8 +1591,11 @@ namespace Pixiv
                 {
                     int id = InputData.Id;
 
+                    int endId = InputData.EndId;
 
-                    m_crawling = Crawling.Start(id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    int taskCount = InputData.TaskCount;
+
+                    m_crawling = Crawling.Start(endId, id, taskCount, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
 
                     m_action = () => InputData.Id = m_crawling.Id;

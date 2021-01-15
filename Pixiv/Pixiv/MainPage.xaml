@@ -8,9 +8,22 @@
         <StackLayout x:Name="m_start_cons">
             <Button Text="从最后ID开始爬取"
                     Clicked="OnStartFromLastId"></Button>
-            <Entry x:Name="m_startId_value"
+            <StackLayout Orientation="Horizontal">
+                <Label Text="StartId"></Label>
+                <Entry x:Name="m_startId_value"
+                       WidthRequest="100"
+                       Keyboard="Numeric"></Entry>
+                <Label Text="EndId"></Label>
+                <Entry x:Name="m_endId_value"
+                       WidthRequest="100"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="TaskCount"></Label>
+                <Entry x:Name="m_task_count_value"
                        WidthRequest="200"
                        Keyboard="Numeric"></Entry>
+            </StackLayout>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
             <Button Text="隐藏"

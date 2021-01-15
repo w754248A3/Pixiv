@@ -452,7 +452,11 @@ namespace Pixiv
 
             volatile int m_response_exception_count = 0;
 
+            volatile int m_start_count = 0;
+
             public Func<int, Task<bool>> SelectIdFunc { get; set; }
+
+            public Func<bool> IsAddResponseExFunc { get; set; }
 
             static int InitId(int id)
             {
@@ -485,6 +489,8 @@ namespace Pixiv
                 m_ex_count = 0;
 
                 SelectIdFunc = (n) => Task.FromResult(true);
+
+                IsAddResponseExFunc = () => true;
             }
 
 
@@ -513,14 +519,20 @@ namespace Pixiv
                         {
                             return n;
                         }
-                        else
-                        {
-                            throw new ArgumentOutOfRangeException();
-                        }
                     }
                 }
 
                 
+            }
+
+            public int GetStartCount()
+            {
+                return m_start_count;
+            }
+
+            public void AddStartCount()
+            {
+                Interlocked.Increment(ref m_start_count);
             }
 
             public void Completed()
@@ -543,6 +555,11 @@ namespace Pixiv
             public bool IsReturn()
             {
                 AddResponseCount();
+
+                if (IsAddResponseExFunc() == false)
+                {
+                    return false;
+                }
 
                 if (Interlocked.Increment(ref m_ex_count) >= m_max_ex_count)
                 {
@@ -574,7 +591,7 @@ namespace Pixiv
 
         public int Id => m_count.Id();
 
-        public string Message => $"Id:{Id} C:{Task.IsCompleted} T:{m_count.GetTimeOutCount()} R:{m_count.GetResponseCount()}";
+        public string Message => $"Id:{Id} C:{Task.IsCompleted} T:{m_count.GetTimeOutCount()} S:{m_count.GetStartCount()} R:{m_count.GetResponseCount()}";
 
         private Crawling(int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
         {
@@ -608,6 +625,8 @@ namespace Pixiv
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
+                    m_count.AddStartCount();
+
                     string html = await m_client(uri).ConfigureAwait(false);
 
                     m_count.Completed();
@@ -637,16 +656,56 @@ namespace Pixiv
             }
         }
 
-        public static Crawling Start(int? endId, int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
+        public static Crawling Start(bool isOnlyCrawlingNotSave, int? endId, int startId, int runCount, int maxExCount, int reloadCount, TimeSpan responseTimeOut)
         {
             Crawling crawling = new Crawling(startId, runCount, maxExCount, reloadCount, responseTimeOut);
+
+            Func<int, Task<bool>> func = (n) => Task.FromResult(true);
+
+
+            if (isOnlyCrawlingNotSave)
+            {
+                func = async (n) =>
+                {
+                    var item = await DataBase.Find(n).ConfigureAwait(false);
+
+                    if (item is null)
+                    {
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                };
+
+
+
+                crawling.m_count.IsAddResponseExFunc = () => false;
+            }
+
 
             if (endId.HasValue)
             {
 
-                crawling.m_count.SelectIdFunc = (n) => n <= endId ? Task.FromResult(true) : Task.FromResult(false);
+                var f = func;
+
+                func = async (n) =>
+                {
+                    if (n <= endId)
+                    {
+                        return await f(n).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        throw new ArgumentOutOfRangeException();
+                    }
+                    
+                };
 
             }
+
+            crawling.m_count.SelectIdFunc = func;
 
             crawling.Task = Task.Run(() =>
             {
@@ -1576,7 +1635,7 @@ namespace Pixiv
             {
                 int id = await DataBase.GetMaxItemId();
 
-                m_crawling = Crawling.Start(null, id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                m_crawling = Crawling.Start(false, null, id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
             });
         }
@@ -1595,7 +1654,9 @@ namespace Pixiv
 
                     int taskCount = InputData.TaskCount;
 
-                    m_crawling = Crawling.Start(endId, id, taskCount, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    bool b = m_isonly_crawling_notsave_value.IsToggled;
+
+                    m_crawling = Crawling.Start(b, endId, id, taskCount, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
 
                     m_action = () => InputData.Id = m_crawling.Id;

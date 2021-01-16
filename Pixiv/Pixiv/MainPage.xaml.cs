@@ -178,32 +178,32 @@ namespace Pixiv
             return sslStream;
         }
 
-        static async Task<T> CatchSocketExceptionAsync<T>(Func<Task<T>> func)
-        {
-            while (true)
-            {
-                try
-                {
-                    return await func().ConfigureAwait(false);
-                }
-                catch (MHttpClientException e)
-                when (e.InnerException is SocketException)
-                {
-                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                }
-            }
+        //static async Task<T> CatchSocketExceptionAsync<T>(Func<Task<T>> func)
+        //{
+        //    while (true)
+        //    {
+        //        try
+        //        {
+        //            return await func().ConfigureAwait(false);
+        //        }
+        //        catch (MHttpClientException e)
+        //        when (e.InnerException is SocketException)
+        //        {
+        //            await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+        //        }
+        //    }
 
 
-        }
+        //}
 
-        static async Task<T> GetAsync<T>(Func<Task<T>> func, int reloadCount)
+        static async Task<T> CatchOperationCanceledExceptionAsync<T>(Func<Task<T>> func, int reloadCount)
         {
 
             foreach (var item in Enumerable.Range(0, reloadCount))
             {
                 try
                 {
-                    return await CatchSocketExceptionAsync(func).ConfigureAwait(false);
+                    return await func().ConfigureAwait(false);
                 }
                 catch (MHttpClientException e)
                 when (e.InnerException is OperationCanceledException)
@@ -212,8 +212,10 @@ namespace Pixiv
                 }
             }
 
-            return await CatchSocketExceptionAsync(func).ConfigureAwait(false);
+            return await func().ConfigureAwait(false);
         }
+
+        
 
         public static Func<Uri, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount, TimeSpan responseTimeOut)
         {
@@ -231,10 +233,9 @@ namespace Pixiv
 
             client.ResponseTimeOut = responseTimeOut;
 
-
             return (uri) =>
             {
-                return GetAsync(() => client.GetStringAsync(uri), reloadCount);
+                return CatchOperationCanceledExceptionAsync(() => client.GetStringAsync(uri), reloadCount);
             };
         }
 
@@ -251,7 +252,7 @@ namespace Pixiv
 
             return (uri, referer) =>
             {
-                return GetAsync(() => client.GetByteArrayAsync(uri, referer), reloadCount);
+                return CatchOperationCanceledExceptionAsync(() => client.GetByteArrayAsync(uri, referer), reloadCount);
             };
         }
     }
@@ -764,8 +765,10 @@ namespace Pixiv
 
     sealed class Crawling2
     {
-        static async Task PreloadId(MyChannels<int> channelsId, int startId, int count, Func<int,int, Task<List<int>>> getList, Func<int, bool> isEnd)
+        static async Task PreloadId(MyChannels<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEnd)
         {
+            startId = InitId(startId);
+
             try
             {
 
@@ -794,49 +797,44 @@ namespace Pixiv
             }
 
         }
-    
-        static async Task LoadHtml(MyChannels<int> channelsId, MyChannels<PixivData> channelsData, Action re, Action<Exception> action)
+
+        static async Task LoadHtml(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData)
         {
-            try
+            int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+
+            Uri uri = CreatePixivData.GetNextUri(n);
+
+
+            string html = await func(uri).ConfigureAwait(false);
+
+
+            PixivData data = CreatePixivData.Create(n, html);
+
+            await channelsData.WriteAsync(data).ConfigureAwait(false);
+        }
+
+        static async Task LoadHtmlLoop(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData)
+        {
+            while (true)
             {
-                while (true)
+                try
+                {
+                    await LoadHtml(func, channelsId, channelsData).ConfigureAwait(false);
+                }
+                catch (MyChannelsCompletedException)
+                {
+                    return;
+                }
+                catch (MHttpClientException)
                 {
 
-                    int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
-
-                    Uri uri = CreatePixivData.GetNextUri(n);
-
-                    string html;
-                    try
-                    {
-
-                        html = await m_client(uri).ConfigureAwait(false);
-
-                        re();
-                    }
-                    catch (Exception e)
-                    {
-                        action(e);
-
-                        continue;
-                    }
-
-
-
-                    PixivData data = CreatePixivData.Create(n, html);
-
-                    await channelsData.WriteAsync(data).ConfigureAwait(false);
                 }
 
-
             }
-            catch (MyChannelsCompletedException)
-            {
 
-            }
         }
-       
-        static async Task Save(MyChannels<PixivData> channelsData)
+
+        static async Task Save(MyChannels<PixivData> channelsData, int maxCount)
         {
 
             var list = new List<PixivData>();
@@ -846,12 +844,12 @@ namespace Pixiv
 
                 while (true)
                 {
-                    var item = await channelsData.ReadAsync().ConfigureAwait(false);
+                    var item = await channelsData.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
 
                     list.Add(item);
 
 
-                    if(list.Count >= 100)
+                    if (list.Count >= maxCount)
                     {
                         var v = list;
 
@@ -867,6 +865,179 @@ namespace Pixiv
             }
 
             await DataBase.AddAll(list).ConfigureAwait(false);
+        }
+
+        static Func<Uri, Task<T>> CatchMHttpResponseExceptionAsync<T>(Func<Uri, Task<T>> func, int maxExCount)
+        {
+            int count = 0;
+
+            return async (uri) =>
+            {
+                try
+                {
+
+                    var v = await func(uri).ConfigureAwait(false);
+
+                    count = 0;
+
+                    return v;
+                }
+                catch (MHttpClientException e)
+                when (e.InnerException is MHttpResponseException)
+                {
+                    if (Interlocked.Increment(ref count) >= maxExCount)
+                    {
+                        throw new MyChannelsCompletedException();
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+
+            };
+        }
+
+        static Func<Uri, Task<string>> CreateClientFunc(Func<Uri, Task<string>> func, int? maxExCount)
+        {
+            if (maxExCount is null)
+            {
+                return func;
+            }
+            else
+            {
+                return CatchMHttpResponseExceptionAsync(func, maxExCount.Value);
+            }
+        }
+
+
+        static Func<int, int, Task<List<int>>> CreateGetIdFunc(bool isOnlyCrawlingNotSave)
+        {
+            if (isOnlyCrawlingNotSave)
+            {
+                return (start, count) => DataBase.FindNotHaveId(start, count);
+            }
+            else
+            {
+                return (start, count) => Task.FromResult(Enumerable.Range(start, count).ToList());
+            }
+        }
+
+        static Func<int, bool> CreateEndFunc(int? endId, CountPack countPack)
+        {
+
+            if (endId is null)
+            {
+                return (n) =>
+                {
+                    countPack.Id = n;
+
+                    return false;
+                };
+            }
+            else
+            {
+                int v = endId.Value;
+
+                return (n) =>
+                {
+                    countPack.Id = n;
+
+                    return n >= v;
+                };
+            }
+        }
+
+        static int InitId(int id)
+        {
+            if (id < 0)
+            {
+                return -1;
+            }
+            else
+            {
+                id -= 1;
+
+                if (id < 0)
+                {
+                    return -1;
+                }
+                else
+                {
+                    return id;
+                }
+            }
+
+        }
+
+        public static Crawling2 Start(bool isOnlyCrawlingNotSave, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
+        {
+           
+
+            const int ID_PRE_LOAD_COUNT = 1000;
+
+            var count = new CountPack();
+
+            var clientFunc = CreateClientFunc(
+                CreatePixivMHttpClient.CreateProxy(runCount, reloadCount, responseTimeOut),
+                maxExCount);
+
+            var ids = new MyChannels<int>(ID_PRE_LOAD_COUNT);
+
+            var datas = new MyChannels<PixivData>(ID_PRE_LOAD_COUNT);
+
+            var getListFunc = CreateGetIdFunc(isOnlyCrawlingNotSave);
+
+            var getIsendFunc = CreateEndFunc(endId, count);
+
+            Task.Run(() => PreloadId(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc))
+                .ContinueWith((t) => ids.CompleteAdding());
+
+
+            Task.Run(() => Save(datas, ID_PRE_LOAD_COUNT))
+                .ContinueWith((t) => datas.CompleteAdding());
+
+            var ts = new List<Task>();
+
+            foreach (var item in Enumerable.Range(0, runCount))
+            {
+                ts.Add(Task.Run(() => LoadHtmlLoop(clientFunc, ids, datas)));
+            }
+
+            var craw = new Crawling2();
+
+            craw.Task = Task.WhenAll(ts.ToArray())
+                .ContinueWith((t) =>
+                {
+                    ids.CompleteAdding();
+                    datas.CompleteAdding();
+                });
+
+            craw.Count = count;
+
+            return craw;
+        }
+
+        sealed class CountPack
+        {
+
+            public int Id { get; set; }
+
+        }
+
+
+        private CountPack Count { get; set; }
+
+        public Task Task { get; private set; }
+
+        public int Id => Count.Id;
+
+
+        public string Message => $"ID:{Count.Id} C:{Task.IsCompleted}";
+
+        private Crawling2()
+        {
+
         }
     }
 

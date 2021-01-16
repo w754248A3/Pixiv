@@ -353,6 +353,16 @@ namespace Pixiv
             return s_connection.InsertOrReplace(data);
         }
 
+        static int AddAll_(List<PixivData> datas)
+        {
+            foreach (var item in datas)
+            {
+                Add_(item);
+            }
+
+            return default;
+        }
+
         static PixivData Find_(int id)
         {
             return s_connection.Find<PixivData>(id);
@@ -452,6 +462,11 @@ namespace Pixiv
         public static Task<List<int>> FindNotHaveId(int start, int count)
         {
             return F(() => FindNotHaveId_(start, count));
+        }
+
+        public static Task AddAll(List<PixivData> datas)
+        {
+            return F(() => AddAll_(datas));
         }
     }
 
@@ -744,6 +759,114 @@ namespace Pixiv
             Log.Write("crawling", crawling.Task);
 
             return crawling;
+        }
+    }
+
+    sealed class Crawling2
+    {
+        static async Task PreloadId(MyChannels<int> channelsId, int startId, int count, Func<int,int, Task<List<int>>> getList, Func<int, bool> isEnd)
+        {
+            try
+            {
+
+                while (true)
+                {
+                    var list = await getList(startId, count).ConfigureAwait(false);
+
+                    foreach (var item in list)
+                    {
+                        if (isEnd(item))
+                        {
+                            return;
+                        }
+                        else
+                        {
+                            await channelsId.WriteAsync(item).ConfigureAwait(false);
+                        }
+                    }
+
+                    startId += count;
+                }
+            }
+            catch (MyChannelsCompletedException)
+            {
+
+            }
+
+        }
+    
+        static async Task LoadHtml(MyChannels<int> channelsId, MyChannels<PixivData> channelsData, Action re, Action<Exception> action)
+        {
+            try
+            {
+                while (true)
+                {
+
+                    int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+
+                    Uri uri = CreatePixivData.GetNextUri(n);
+
+                    string html;
+                    try
+                    {
+
+                        html = await m_client(uri).ConfigureAwait(false);
+
+                        re();
+                    }
+                    catch (Exception e)
+                    {
+                        action(e);
+
+                        continue;
+                    }
+
+
+
+                    PixivData data = CreatePixivData.Create(n, html);
+
+                    await channelsData.WriteAsync(data).ConfigureAwait(false);
+                }
+
+
+            }
+            catch (MyChannelsCompletedException)
+            {
+
+            }
+        }
+       
+        static async Task Save(MyChannels<PixivData> channelsData)
+        {
+
+            var list = new List<PixivData>();
+
+            try
+            {
+
+                while (true)
+                {
+                    var item = await channelsData.ReadAsync().ConfigureAwait(false);
+
+                    list.Add(item);
+
+
+                    if(list.Count >= 100)
+                    {
+                        var v = list;
+
+                        list = new List<PixivData>();
+
+                        await DataBase.AddAll(v).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (MyChannelsCompletedException)
+            {
+
+            }
+
+            await DataBase.AddAll(list).ConfigureAwait(false);
         }
     }
 

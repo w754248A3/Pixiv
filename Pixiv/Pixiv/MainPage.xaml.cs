@@ -22,14 +22,19 @@ namespace Pixiv
     {
         static readonly object s_lock= new object();
 
-        public static void Write(string name, Exception e)
+        static void Write_(string name, object obj)
         {
             lock (s_lock)
             {
                 string s = System.Environment.NewLine;
 
-                File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
+                File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{obj}", System.Text.Encoding.UTF8);
             }
+        }
+
+        public static void Write(string name, object obj)
+        {
+            Write_(name, obj);
         }
 
         public static void Write(string name, Task task)
@@ -813,7 +818,20 @@ namespace Pixiv
             await channelsData.WriteAsync(data).ConfigureAwait(false);
         }
 
-        static async Task LoadHtmlLoop(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData)
+        static void De()
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+
+                var v = Xamarin.Essentials.Connectivity.NetworkAccess;
+
+                Log.Write("net", v);
+            });
+
+            Thread.Sleep(new TimeSpan(0, 0, 2));
+        }
+
+        static async Task LoadHtmlLoop(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
         {
             while (true)
             {
@@ -825,19 +843,35 @@ namespace Pixiv
                 {
                     return;
                 }
-                catch (MHttpClientException)
+                catch (MHttpClientException e)
                 {
+                    var ee = e.InnerException;
 
+                    if(ee is MHttpResponseException)
+                    {
+                        countPack.Res404++;
+                    }
+                    else if(ee is SocketException)
+                    {
+                        De();
+                    }
+                    else if (ee is IOException ioe)
+                    {
+                        if (ioe.InnerException is SocketException)
+                        {
+                            De();
+                        }
+                    }
                 }
 
             }
 
         }
 
-        static async Task Save(MyChannels<PixivData> channelsData, int maxCount)
+        static async Task Save(MyChannels<PixivData> channelsData, int maxCount, CountPack countPack)
         {
 
-            var list = new List<PixivData>();
+            var list = new List<PixivData>(maxCount);
 
             try
             {
@@ -853,7 +887,9 @@ namespace Pixiv
                     {
                         var v = list;
 
-                        list = new List<PixivData>();
+                        list = new List<PixivData>(maxCount);
+
+                        countPack.Save += v.Count;
 
                         await DataBase.AddAll(v).ConfigureAwait(false);
                     }
@@ -885,7 +921,7 @@ namespace Pixiv
                 catch (MHttpClientException e)
                 when (e.InnerException is MHttpResponseException)
                 {
-                    if (Interlocked.Increment(ref count) >= maxExCount)
+                    if ((count++) >= maxExCount)
                     {
                         throw new MyChannelsCompletedException();
                     }
@@ -976,6 +1012,8 @@ namespace Pixiv
 
             const int ID_PRE_LOAD_COUNT = 1000;
 
+            startId -= ID_PRE_LOAD_COUNT * 4;
+
             var count = new CountPack();
 
             var clientFunc = CreateClientFunc(
@@ -994,14 +1032,14 @@ namespace Pixiv
                 .ContinueWith((t) => ids.CompleteAdding());
 
 
-            Task.Run(() => Save(datas, ID_PRE_LOAD_COUNT))
+            Task.Run(() => Save(datas, ID_PRE_LOAD_COUNT, count))
                 .ContinueWith((t) => datas.CompleteAdding());
 
             var ts = new List<Task>();
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoop(clientFunc, ids, datas)));
+                ts.Add(Task.Run(() => LoadHtmlLoop(clientFunc, ids, datas, count)));
             }
 
             var craw = new Crawling2();
@@ -1023,6 +1061,10 @@ namespace Pixiv
 
             public int Id { get; set; }
 
+            public int Save { get; set; }
+
+            public int Res404 { get; set; }
+
         }
 
 
@@ -1033,7 +1075,7 @@ namespace Pixiv
         public int Id => Count.Id;
 
 
-        public string Message => $"ID:{Count.Id} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} S:{Count.Save} R:{Count.Res404} C:{Task.IsCompleted}";
 
         private Crawling2()
         {
@@ -1673,7 +1715,7 @@ namespace Pixiv
 
         readonly Awa m_awa = new Awa();
 
-        Crawling m_crawling;
+        Crawling2 m_crawling;
 
         Action m_action;
 
@@ -1950,7 +1992,7 @@ namespace Pixiv
             {
                 int id = await DataBase.GetMaxItemId();
 
-                m_crawling = Crawling.Start(false, null, id, CRAWLING_COUNT, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                m_crawling = Crawling2.Start(false, CRAWLING_MAX_EX_COUNT, id, null, CRAWLING_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
             });
         }
@@ -1971,7 +2013,7 @@ namespace Pixiv
 
                     bool b = m_isonly_crawling_notsave_value.IsToggled;
 
-                    m_crawling = Crawling.Start(b, endId, id, taskCount, CRAWLING_MAX_EX_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    m_crawling = Crawling2.Start(b, null, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
 
                     m_action = () => InputData.Id = m_crawling.Id;

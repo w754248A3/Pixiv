@@ -851,6 +851,10 @@ namespace Pixiv
                     {
                         countPack.Res404++;
                     }
+                    else if(ee is OperationCanceledException)
+                    {
+                        countPack.TimeOut++;
+                    }
                     else if(ee is SocketException)
                     {
                         De();
@@ -1065,6 +1069,7 @@ namespace Pixiv
 
             public int Res404 { get; set; }
 
+            public int TimeOut { get; set; }
         }
 
 
@@ -1075,7 +1080,7 @@ namespace Pixiv
         public int Id => Count.Id;
 
 
-        public string Message => $"ID:{Count.Id} S:{Count.Save} R:{Count.Res404} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
 
         private Crawling2()
         {

@@ -877,26 +877,64 @@ namespace Pixiv
 
             var list = new List<PixivData>(maxCount);
 
+            Func<Task> addAll = () =>
+            {
+                var v = list;
+
+                list = new List<PixivData>(maxCount);
+
+                countPack.Save += v.Count;
+
+                return DataBase.AddAll(v);
+
+            };
+
+            Func<Task<PixivData>, Task> addAllOver = async (t) =>
+            {
+                var item = await t.ConfigureAwait(false);
+
+                list.Add(item);
+
+
+                if (list.Count >= maxCount)
+                {
+                    await addAll().ConfigureAwait(false);
+                }
+                
+            };
+
+            Func<Task> addAllTimeOut = () =>
+            {
+                if (list.Count != 0)
+                {
+                    return addAll();
+                }
+                else
+                {
+                    return Task.CompletedTask;
+                }
+            };
+
             try
             {
 
                 while (true)
                 {
-                    var item = await channelsData.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+                    var t = channelsData.ReadAsync();
 
-                    list.Add(item);
-
-
-                    if (list.Count >= maxCount)
+                    if (t.IsCompleted)
                     {
-                        var v = list;
-
-                        list = new List<PixivData>(maxCount);
-
-                        countPack.Save += v.Count;
-
-                        await DataBase.AddAll(v).ConfigureAwait(false);
+                        await addAllOver(t).ConfigureAwait(false);
                     }
+                    else
+                    {
+                        await Task.Delay(new TimeSpan(0, 5, 0)).ConfigureAwait(false);
+
+                        await addAllTimeOut().ConfigureAwait(false);
+
+                        await addAllOver(t).ConfigureAwait(false);
+                    }
+
                 }
             }
             catch (MyChannelsCompletedException)

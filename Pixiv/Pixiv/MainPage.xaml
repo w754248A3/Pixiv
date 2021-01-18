@@ -26,7 +26,8 @@
             </StackLayout>
             <StackLayout Orientation="Horizontal">
                 <Label Text="CrawlingMoed"></Label>
-                <Picker x:Name="m_crawling_moed_value"></Picker>
+                <Picker x:Name="m_crawling_moed_value"
+                        WidthRequest="200"></Picker>
             </StackLayout>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>

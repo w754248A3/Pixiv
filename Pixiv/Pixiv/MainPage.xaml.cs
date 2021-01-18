@@ -376,18 +376,18 @@ namespace Pixiv
 
         static List<int> FindNotHaveId_(int start, int count)
         {
-            var list = new List<int>();
+            return Enumerable.Range(start, count)
+                .Where((n) => Find_(n) is null)
+                .ToList();
+        }
 
+        static List<int> FindHaveId_(int start, int count)
+        {
 
-            foreach (var item in Enumerable.Range(start, count))
-            {
-                if (Find_(item) is null) 
-                {
-                    list.Add(item);
-                }
-            }
+            return Enumerable.Range(start, count)
+                .Where((n) => !(Find_(n) is null))
+                .ToList();
 
-            return list;
         }
 
         static List<PixivData> Select_((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
@@ -468,6 +468,11 @@ namespace Pixiv
         public static Task<List<int>> FindNotHaveId(int start, int count)
         {
             return F(() => FindNotHaveId_(start, count));
+        }
+
+        public static Task<List<int>> FindHaveId(int start, int count)
+        {
+            return F(() => FindHaveId_(start, count));
         }
 
         public static Task AddAll(List<PixivData> datas)

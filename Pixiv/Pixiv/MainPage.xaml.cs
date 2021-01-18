@@ -803,25 +803,6 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtmlTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
-        {
-            int n = await channelsId.ReadAsync().ConfigureAwait(false);
-
-            Uri uri = CreatePixivData.GetNextUri(n);
-
-
-            countPack.Id = n;
-
-            countPack.Load++;
-
-            string html = await func(uri).ConfigureAwait(false);
-
-
-            PixivData data = CreatePixivData.Create(n, html);
-
-            await channelsData.WriteAsync(data).ConfigureAwait(false);
-        }
-
         static void De()
         {
             MainThread.BeginInvokeOnMainThread(() =>
@@ -835,45 +816,44 @@ namespace Pixiv
             Thread.Sleep(new TimeSpan(0, 0, 2));
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
+        static async Task LoadHtmlLoopTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
         {
             while (true)
             {
                 try
                 {
-                    await LoadHtmlTask(func, channelsId, channelsData, countPack).ConfigureAwait(false);
+                    int n = await channelsId.ReadAsync().ConfigureAwait(false);
+
+                    Uri uri = CreatePixivData.GetNextUri(n);
+
+
+                    countPack.Id = n;
+
+                    countPack.Load++;
+
+                    string html = await func(uri).ConfigureAwait(false);
+
+
+                    PixivData data = CreatePixivData.Create(n, html);
+
+                    await channelsData.WriteAsync(data).ConfigureAwait(false);
                 }
                 catch (MyChannelsCompletedException)
                 {
                     return;
                 }
-                catch (MHttpClientException e)
+                catch (Exception e)
                 {
-                    var ee = e.InnerException;
+                    if (isCatch(e))
+                    {
 
-                    if(ee is MHttpResponseException)
-                    {
-                        countPack.Res404++;
-                    }
-                    else if(ee is OperationCanceledException)
-                    {
-                        countPack.TimeOut++;
-                    }
-                    else if(ee is SocketException)
-                    {
-                        De();
-                    }
-                    else if (ee is IOException ioe)
-                    {
-                        if (ioe.InnerException is SocketException)
-                        {
-                            De();
-                        }
+
                     }
                     else
                     {
-                        Log.Write("cload", e);
+                        throw;
                     }
+
                 }
 
             }
@@ -1072,6 +1052,50 @@ namespace Pixiv
 
         }
 
+        static Func<Exception, bool> CreateIsCatchFunc(CountPack countPack)
+        {
+            return (e) =>
+            {
+                if (e is MHttpClientException mhce)
+                {
+
+                    var ee = mhce.InnerException;
+
+                    if (ee is MHttpResponseException)
+                    {
+                        countPack.Res404++;
+                    }
+                    else if (ee is OperationCanceledException)
+                    {
+                        countPack.TimeOut++;
+                    }
+                    else if (ee is SocketException)
+                    {
+                        De();
+                    }
+                    else if (ee is IOException ioe)
+                    {
+                        if (ioe.InnerException is SocketException)
+                        {
+                            De();
+                        }
+                    }
+                    else
+                    {
+                        Log.Write("cload", mhce);
+                    }
+
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
+
+
+            };
+        }
+
         public static Crawling2 Start(bool isOnlyCrawlingNotSave, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
         {
            
@@ -1108,9 +1132,11 @@ namespace Pixiv
 
             var ts = new List<Task>();
 
+            var isCatch = CreateIsCatchFunc(countPack);
+
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, ids, datas, countPack)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, ids, datas, countPack, isCatch)));
             }
 
             var craw = new Crawling2();

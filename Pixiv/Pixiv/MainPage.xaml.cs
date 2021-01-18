@@ -770,7 +770,7 @@ namespace Pixiv
 
     sealed class Crawling2
     {
-        static async Task PreloadId(MyChannels<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEnd)
+        static async Task PreLoadIdTask(MyChannels<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEndId)
         {
             startId = InitId(startId);
 
@@ -783,7 +783,7 @@ namespace Pixiv
 
                     foreach (var item in list)
                     {
-                        if (isEnd(item))
+                        if (isEndId(item))
                         {
                             return;
                         }
@@ -803,12 +803,16 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtml(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData)
+        static async Task LoadHtmlTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
         {
-            int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+            int n = await channelsId.ReadAsync().ConfigureAwait(false);
 
             Uri uri = CreatePixivData.GetNextUri(n);
 
+
+            countPack.Id = n;
+
+            countPack.Load++;
 
             string html = await func(uri).ConfigureAwait(false);
 
@@ -831,13 +835,13 @@ namespace Pixiv
             Thread.Sleep(new TimeSpan(0, 0, 2));
         }
 
-        static async Task LoadHtmlLoop(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
+        static async Task LoadHtmlLoopTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack)
         {
             while (true)
             {
                 try
                 {
-                    await LoadHtml(func, channelsId, channelsData).ConfigureAwait(false);
+                    await LoadHtmlTask(func, channelsId, channelsData, countPack).ConfigureAwait(false);
                 }
                 catch (MyChannelsCompletedException)
                 {
@@ -866,15 +870,38 @@ namespace Pixiv
                             De();
                         }
                     }
+                    else
+                    {
+                        Log.Write("cload", e);
+                    }
                 }
 
             }
 
         }
 
-        static async Task Save(MyChannels<PixivData> channelsData, int maxCount, CountPack countPack)
+        static async Task SaveTask(MyChannels<PixivData> channelsData, int maxCount, CountPack countPack)
         {
+            TimeSpan timeSpan = new TimeSpan(0, 5, 0);
 
+            Task timeOutTask = Task.Delay(timeSpan);
+
+            Func<Task, Task<bool>> isTimeOut = async (itemTask) =>
+            {
+                var t = await Task.WhenAny(itemTask, timeOutTask).ConfigureAwait(false);
+
+                if (object.ReferenceEquals(t, itemTask))
+                {
+                    return false;
+                }
+                else
+                {
+                    timeOutTask = Task.Delay(timeSpan);
+
+                    return true;
+                }
+            };
+            
             var list = new List<PixivData>(maxCount);
 
             Func<Task> addAll = () =>
@@ -920,19 +947,26 @@ namespace Pixiv
 
                 while (true)
                 {
-                    var t = channelsData.ReadAsync();
+                    var itemTask = channelsData.ReadAsync();
 
-                    if (t.IsCompleted)
+                    if (itemTask.IsCompleted)
                     {
-                        await addAllOver(t).ConfigureAwait(false);
+                        await addAllOver(itemTask).ConfigureAwait(false);
                     }
                     else
                     {
-                        await Task.Delay(new TimeSpan(0, 5, 0)).ConfigureAwait(false);
 
-                        await addAllTimeOut().ConfigureAwait(false);
-
-                        await addAllOver(t).ConfigureAwait(false);
+                        if (await isTimeOut(itemTask).ConfigureAwait(false))
+                        {
+                            await addAllTimeOut().ConfigureAwait(false);
+                   
+                            await addAllOver(itemTask).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await addAllOver(itemTask).ConfigureAwait(false);
+                        }
+                        
                     }
 
                 }
@@ -1001,34 +1035,18 @@ namespace Pixiv
             }
         }
 
-        static Func<int, bool> CreateEndFunc(int? endId, CountPack countPack)
+        static Func<int, bool> CreateEndFunc(int? endId)
         {
 
             if (endId is null)
             {
-                return (n) =>
-                {
-                    countPack.Id = n;
-
-                    countPack.Start++;
-
-                    return false;
-                };
+                return (n) => false;
             }
             else
             {
                 int v = endId.Value;
 
-                return (n) =>
-                {
-                    countPack.Id = n;
-
-
-                    countPack.Start++;
-
-
-                    return n >= v;
-                };
+                return (n) => n > v;
             }
         }
 
@@ -1062,7 +1080,7 @@ namespace Pixiv
 
             startId -= ID_PRE_LOAD_COUNT * 4;
 
-            var count = new CountPack();
+            var countPack = new CountPack();
 
             var clientFunc = CreateClientFunc(
                 CreatePixivMHttpClient.CreateProxy(runCount, reloadCount, responseTimeOut),
@@ -1074,32 +1092,40 @@ namespace Pixiv
 
             var getListFunc = CreateGetIdFunc(isOnlyCrawlingNotSave);
 
-            var getIsendFunc = CreateEndFunc(endId, count);
+            var getIsendFunc = CreateEndFunc(endId);
 
-            Task.Run(() => PreloadId(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc))
-                .ContinueWith((t) => ids.CompleteAdding());
+            var t1 = Task.Run(() => PreLoadIdTask(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc));
+            
+            t1.ContinueWith((t) => ids.CompleteAdding());
 
+            Log.Write("c2", t1);
 
-            Task.Run(() => Save(datas, ID_PRE_LOAD_COUNT, count))
-                .ContinueWith((t) => datas.CompleteAdding());
+            var t2 = Task.Run(() => SaveTask(datas, ID_PRE_LOAD_COUNT, countPack));
+           
+            t2.ContinueWith((t) => datas.CompleteAdding());
+
+            Log.Write("c2", t2);
 
             var ts = new List<Task>();
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoop(clientFunc, ids, datas, count)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, ids, datas, countPack)));
             }
 
             var craw = new Crawling2();
 
-            craw.Task = Task.WhenAll(ts.ToArray())
-                .ContinueWith((t) =>
+            craw.Task = Task.WhenAll(ts.ToArray());
+            
+            craw.Task.ContinueWith((t) =>
                 {
                     ids.CompleteAdding();
                     datas.CompleteAdding();
                 });
 
-            craw.Count = count;
+            Log.Write("c2", craw.Task);
+
+            craw.Count = countPack;
 
             return craw;
         }
@@ -1115,7 +1141,7 @@ namespace Pixiv
 
             public int TimeOut { get; set; }
 
-            public int Start { get; set; }
+            public int Load { get; set; }
         }
 
 
@@ -1126,7 +1152,7 @@ namespace Pixiv
         public int Id => Count.Id;
 
 
-        public string Message => $"ID:{Count.Id} L:{Count.Start} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
 
         private Crawling2()
         {
@@ -1341,9 +1367,11 @@ namespace Pixiv
             var client = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, reLoadCount, responseTimeOut);
 
 
-            Task.Run(() => CreateLoadData(datas, func))
-                .ContinueWith((t) => datas.CompleteAdding());
-                
+            var t1 = Task.Run(() => CreateLoadData(datas, func));
+           
+            t1.ContinueWith((t) => datas.CompleteAdding());
+
+            Log.Write("preload", t1);
 
             var list = new List<Task>();
 
@@ -1355,7 +1383,11 @@ namespace Pixiv
             }
 
 
-            Task.WhenAll(list.ToArray()).ContinueWith((t) => imgs.CompleteAdding());
+            var t2 = Task.WhenAll(list.ToArray());
+          
+            t2.ContinueWith((t) => imgs.CompleteAdding());
+
+            Log.Write("preload", t2);
 
             return new Preload(imgs, datas.CompleteAdding);
         }

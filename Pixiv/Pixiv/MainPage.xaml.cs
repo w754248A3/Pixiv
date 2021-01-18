@@ -775,6 +775,13 @@ namespace Pixiv
 
     sealed class Crawling2
     {
+        public enum Mode
+        {
+            All,
+            OnlyNotHave,
+            OnlyHave
+        }
+
         static async Task PreLoadIdTask(MyChannels<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEndId)
         {
             startId = InitId(startId);
@@ -1008,15 +1015,19 @@ namespace Pixiv
         }
 
 
-        static Func<int, int, Task<List<int>>> CreateGetIdFunc(bool isOnlyCrawlingNotSave)
+        static Func<int, int, Task<List<int>>> CreateGetIdFunc(Crawling2.Mode mode)
         {
-            if (isOnlyCrawlingNotSave)
+            if (mode == Mode.OnlyNotHave)
             {
                 return (start, count) => DataBase.FindNotHaveId(start, count);
             }
-            else
+            else if(mode == Mode.All)
             {
                 return (start, count) => Task.FromResult(Enumerable.Range(start, count).ToList());
+            }
+            else
+            {
+                return (start, count) => DataBase.FindHaveId(start, count);
             }
         }
 
@@ -1101,7 +1112,7 @@ namespace Pixiv
             };
         }
 
-        public static Crawling2 Start(bool isOnlyCrawlingNotSave, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
+        public static Crawling2 Start(Crawling2.Mode mode, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
         {
            
 
@@ -1119,7 +1130,7 @@ namespace Pixiv
 
             var datas = new MyChannels<PixivData>(ID_PRE_LOAD_COUNT);
 
-            var getListFunc = CreateGetIdFunc(isOnlyCrawlingNotSave);
+            var getListFunc = CreateGetIdFunc(mode);
 
             var getIsendFunc = CreateEndFunc(endId);
 
@@ -1878,8 +1889,19 @@ namespace Pixiv
             InitCollView();
         } 
 
+        void InitCrawlingMoedValue()
+        {
+            var vs = Enum.GetNames(typeof(Crawling2.Mode));
+
+            m_crawling_moed_value.ItemsSource = vs;
+
+            m_crawling_moed_value.SelectedIndex = 0;
+        }
+
         void InitInputView()
         {
+            InitCrawlingMoedValue();
+
             m_endId_value.Text = InputData.EndId.ToString();
 
             m_task_count_value.Text = InputData.TaskCount.ToString();
@@ -2106,9 +2128,15 @@ namespace Pixiv
             {
                 int id = await DataBase.GetMaxItemId();
 
-                m_crawling = Crawling2.Start(false, CRAWLING_MAX_EX_COUNT, id, null, CRAWLING_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                m_crawling = Crawling2.Start(Crawling2.Mode.All, CRAWLING_MAX_EX_COUNT, id, null, CRAWLING_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
             });
+        }
+
+        static Crawling2.Mode GetCrawlingMoedValue(string s)
+        {
+            return (Crawling2.Mode)Enum.Parse(typeof(Crawling2.Mode), s);
+
         }
 
         void OnStartFromInputId(object sender, EventArgs e)
@@ -2125,9 +2153,9 @@ namespace Pixiv
 
                     int taskCount = InputData.TaskCount;
 
-                    bool b = m_isonly_crawling_notsave_value.IsToggled;
+                    var moed = GetCrawlingMoedValue(m_crawling_moed_value.SelectedItem.ToString());
 
-                    m_crawling = Crawling2.Start(b, null, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    m_crawling = Crawling2.Start(moed, null, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
 
                     m_action = () => InputData.Id = m_crawling.Id;

@@ -25,9 +25,8 @@
                        Keyboard="Numeric"></Entry>
             </StackLayout>
             <StackLayout Orientation="Horizontal">
-                <Label Text="IsOnlyCrawlingNotSave"></Label>
-                <Switch x:Name="m_isonly_crawling_notsave_value" 
-                        IsToggled="False"></Switch>
+                <Label Text="CrawlingMoed"></Label>
+                <Picker x:Name="m_crawling_moed_value"></Picker>
             </StackLayout>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>

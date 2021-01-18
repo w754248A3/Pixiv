@@ -1010,6 +1010,8 @@ namespace Pixiv
                 {
                     countPack.Id = n;
 
+                    countPack.Start++;
+
                     return false;
                 };
             }
@@ -1020,6 +1022,10 @@ namespace Pixiv
                 return (n) =>
                 {
                     countPack.Id = n;
+
+
+                    countPack.Start++;
+
 
                     return n >= v;
                 };
@@ -1108,6 +1114,8 @@ namespace Pixiv
             public int Res404 { get; set; }
 
             public int TimeOut { get; set; }
+
+            public int Start { get; set; }
         }
 
 
@@ -1118,7 +1126,7 @@ namespace Pixiv
         public int Id => Count.Id;
 
 
-        public string Message => $"ID:{Count.Id} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} L:{Count.Start} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
 
         private Crawling2()
         {

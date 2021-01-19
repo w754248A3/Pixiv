@@ -843,26 +843,13 @@ namespace Pixiv
 
         }
 
-        static void De()
-        {
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-
-                var v = Xamarin.Essentials.Connectivity.NetworkAccess;
-
-                Log.Write("net", v);
-            });
-
-            Thread.Sleep(new TimeSpan(0, 0, 2));
-        }
-
         static async Task LoadHtmlLoopTask(Func<Uri, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
         {
             while (true)
             {
                 try
                 {
-                    int n = await channelsId.ReadAsync().ConfigureAwait(false);
+                    int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
@@ -967,7 +954,7 @@ namespace Pixiv
 
                 while (true)
                 {
-                    var itemTask = channelsData.ReadAsync();
+                    var itemTask = channelsData.ReadReportCompletedImmediatelyAsync();
 
                     if (itemTask.IsCompleted)
                     {
@@ -997,6 +984,35 @@ namespace Pixiv
             }
 
             await DataBase.AddAll(list).ConfigureAwait(false);
+        }
+
+        static Func<Uri, Task<T>> CatchNotIntetnetSocketExceptionAsync<T>(Func<Uri, Task<T>> func)
+        {
+            return async (uri) =>
+            {
+
+                while (true)
+                {
+                    try
+                    {
+                        return await func(uri).ConfigureAwait(false);
+                    }
+                    catch (MHttpClientException e)
+                    when (e.InnerException is SocketException ||
+                            (e.InnerException is IOException ioEx &&
+                            ioEx.InnerException is SocketException))
+                    {
+                        if (Connectivity.NetworkAccess == NetworkAccess.Internet)
+                        {
+                            throw;
+                        }
+
+                    }
+
+                    await Task.Delay(new TimeSpan(0, 0, 30)).ConfigureAwait(false);
+                }
+
+            };
         }
 
         static Func<Uri, Task<T>> CatchMHttpResponseExceptionAsync<T>(Func<Uri, Task<T>> func, int maxExCount)
@@ -1032,6 +1048,8 @@ namespace Pixiv
 
         static Func<Uri, Task<string>> CreateClientFunc(Func<Uri, Task<string>> func, int? maxExCount)
         {
+            func = CatchNotIntetnetSocketExceptionAsync(func);
+
             if (maxExCount is null)
             {
                 return func;
@@ -1113,17 +1131,6 @@ namespace Pixiv
                     {
                         countPack.TimeOut++;
                     }
-                    else if (ee is SocketException)
-                    {
-                        De();
-                    }
-                    else if (ee is IOException ioe)
-                    {
-                        if (ioe.InnerException is SocketException)
-                        {
-                            De();
-                        }
-                    }
                     else
                     {
                         Log.Write("cload", mhce);
@@ -1197,6 +1204,12 @@ namespace Pixiv
 
             craw.Count = countPack;
 
+            craw.CompleteAdding = () =>
+            {
+                ids.CompleteAdding();
+                datas.CompleteAdding();
+            };
+
             return craw;
         }
 
@@ -1221,6 +1234,7 @@ namespace Pixiv
 
         public int Id => Count.Id;
 
+        public Action CompleteAdding { get; private set; }
 
         public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
 
@@ -1367,7 +1381,7 @@ namespace Pixiv
 
                 try
                 {
-                    data = await source.ReadAsync().ConfigureAwait(false);
+                    data = await source.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
                 }
                 catch (MyChannelsCompletedException)
                 {
@@ -2081,11 +2095,7 @@ namespace Pixiv
 
         protected override bool OnBackButtonPressed()
         {
-            if (m_reload is null || m_reloadTask is null)
-            {
-
-            }
-            else
+            if (!(m_reload is null) && !(m_reloadTask is null))
             {
                 m_reload.Complete();
 
@@ -2111,6 +2121,15 @@ namespace Pixiv
                 DisplayAlert("消息", "取消中", "确定");
 
 
+            }
+            else
+            {
+                if (!(m_crawling is null))
+                {
+                    m_crawling.CompleteAdding();
+
+                    DisplayAlert("消息", "爬取取消中", "确定");
+                }
             }
 
             return true;
@@ -2158,6 +2177,7 @@ namespace Pixiv
 
                 m_crawling = Crawling2.Start(Crawling2.Mode.All, CRAWLING_MAX_EX_COUNT, id, null, CRAWLING_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
+                Task t = m_crawling.Task.ContinueWith(CrawlingOver);
             });
         }
 
@@ -2165,6 +2185,11 @@ namespace Pixiv
         {
             return (Crawling2.Mode)Enum.Parse(typeof(Crawling2.Mode), s);
 
+        }
+
+        void CrawlingOver(Task task)
+        {
+            MainThread.BeginInvokeOnMainThread(() => m_start_cons.IsVisible = true);
         }
 
         void OnStartFromInputId(object sender, EventArgs e)
@@ -2185,6 +2210,7 @@ namespace Pixiv
 
                     m_crawling = Crawling2.Start(moed, null, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
+                    m_crawling.Task.ContinueWith(CrawlingOver);
 
                     m_action = () => InputData.Id = m_crawling.Id;
                 });

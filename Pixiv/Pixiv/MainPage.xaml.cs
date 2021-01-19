@@ -224,6 +224,8 @@ namespace Pixiv
 
         public static Func<Uri, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount, TimeSpan responseTimeOut)
         {
+            
+
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
                 ConnectCallback = CreateConnectAsync,
@@ -242,15 +244,41 @@ namespace Pixiv
             {
                 return CatchOperationCanceledExceptionAsync(() => client.GetStringAsync(uri), reloadCount);
             };
+
+
+            
         }
 
         public static Func<Uri, Uri, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, int reloadCount, TimeSpan responseTimeOut)
         {
+            const string IMG_HOST = "s.pximg.net";
+
+            Task CreateConnectAsync(Socket socket, Uri uri)
+            {
+                return socket.ConnectAsync(IMG_HOST, 443);
+
+            }
+
+            async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
+            {
+
+                SslStream sslStream = new SslStream(stream, false);
+
+                await sslStream.AuthenticateAsClientAsync(IMG_HOST).ConfigureAwait(false);
+
+                return sslStream;
+            }
+
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
+                ConnectCallback = CreateConnectAsync,
+
+                AuthenticateCallback = CreateAuthenticateAsync,
+
                 MaxStreamPoolCount = maxStreamPoolCount,
+
                 MaxResponseSize = maxResponseSize
-                
+
             });
 
             client.ResponseTimeOut = responseTimeOut;

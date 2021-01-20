@@ -6,8 +6,6 @@
     <StackLayout>
         <Label x:Name="m_viewText"></Label>
         <StackLayout x:Name="m_start_cons">
-            <Button Text="从最后ID开始爬取"
-                    Clicked="OnStartFromLastId"></Button>
             <StackLayout Orientation="Horizontal">
                 <Label Text="StartId"></Label>
                 <Entry x:Name="m_startId_value"
@@ -25,10 +23,18 @@
                        Keyboard="Numeric"></Entry>
             </StackLayout>
             <StackLayout Orientation="Horizontal">
+                <Label Text="MaxExCount"></Label>
+                <Entry x:Name="m_max_ex_count_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
+            <StackLayout Orientation="Horizontal">
                 <Label Text="CrawlingMoed"></Label>
                 <Picker x:Name="m_crawling_moed_value"
                         WidthRequest="200"></Picker>
             </StackLayout>
+            <Button Text="设置为最后的ID"
+                    Clicked="OnSetLastId"></Button>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
             <Button Text="隐藏"

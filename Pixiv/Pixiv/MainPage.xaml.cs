@@ -549,46 +549,72 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, ChannelReader<int> channelsId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
+        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, Func<ValueTask<int>> getId, Func<int, ValueTask> setTimeOutId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
         {
-            while (true)
+            countPack.AddTaskCount();
+            try
             {
-                try
+                
+
+                while (true)
                 {
-                    int n = await channelsId.ReadAsync().ConfigureAwait(false);
 
-                    Uri uri = CreatePixivData.GetNextUri(n);
+                    ValueTask valueTask = default;
+                
+                    int n = await getId().ConfigureAwait(false);
 
-
-                    countPack.Id = n;
-
-                    countPack.Load++;
-
-                    string html = await func(uri, CancellationToken.None).ConfigureAwait(false);
-
-
-                    PixivData data = CreatePixivData.Create(n, html);
-
-                    await channelsData.WriteAsync(data).ConfigureAwait(false);
-                }
-                catch (ChannelClosedException)
-                {
-                    return;
-                }
-                catch (Exception e)
-                {
-                    if (isCatch(e))
+                    try
                     {
+                        
 
+                        Uri uri = CreatePixivData.GetNextUri(n);
+
+
+                        countPack.Id = n;
+
+                        countPack.Load++;
+
+                        string html;
+                        try
+                        {
+                            countPack.AddHtmlCount();
+                            html = await func(uri, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            countPack.SubHtmlCount();
+                        }
+
+
+
+                        PixivData data = CreatePixivData.Create(n, html);
+
+                        await channelsData.WriteAsync(data).ConfigureAwait(false);
 
                     }
-                    else
+                    catch (MHttpClientException e)
                     {
-                        throw;
+                        if ((e.InnerException is MHttpResponseException) == false)
+                        {
+                            valueTask = setTimeOutId(n);
+                        }
+
+                        if (isCatch(e) == false)
+                        {
+                            throw;
+                        }
                     }
 
+                    await valueTask.ConfigureAwait(false);
                 }
+            }
+            catch (ChannelClosedException)
+            {
 
+            }
+            finally
+            {
+                countPack.SubTaskCount();
             }
 
         }
@@ -807,12 +833,10 @@ namespace Pixiv
                     {
                         countPack.TimeOut++;
 
-                        Log.Write("coce", oce);
                     }
                     else
                     {
-                        Log.Write("cload", mhce);
-
+                        
                         Thread.Sleep(new TimeSpan(0, 0, 2));
                     }
 
@@ -845,19 +869,44 @@ namespace Pixiv
 
             var datas = Channel.CreateBounded<PixivData>(ID_PRE_LOAD_COUNT);
 
+            var timeOuts = Channel.CreateUnbounded<int>();
+
+            Action<Task> completeFunc = (t) =>
+            {
+                ids.Writer.TryComplete();
+
+                datas.Writer.TryComplete();
+
+                timeOuts.Writer.TryComplete();
+            };
+
+            Func<ValueTask<int>> getIdFunc = () =>
+            {
+                if (timeOuts.Reader.TryRead(out int n))
+                {
+                    return new ValueTask<int>(n);
+                }
+                else
+                {
+                    return ids.Reader.ReadAsync();
+                }
+            };
+
+            Func<int, ValueTask> settimeOutFunc = (n) => timeOuts.Writer.WriteAsync(n);
+
             var getListFunc = CreateGetIdFunc(mode);
 
             var getIsendFunc = CreateEndFunc(endId);
 
             var t1 = Task.Run(() => PreLoadIdTask(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc));
             
-            t1.ContinueWith((t) => ids.Writer.TryComplete());
+            t1.ContinueWith(completeFunc);
 
             Log.Write("c2", t1);
 
             var t2 = Task.Run(() => SaveTask(datas, ID_PRE_LOAD_COUNT, countPack));
            
-            t2.ContinueWith((t) => datas.Writer.TryComplete());
+            t2.ContinueWith(completeFunc);
 
             Log.Write("c2", t2);
 
@@ -867,34 +916,54 @@ namespace Pixiv
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, ids, datas, countPack, isCatch)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, getIdFunc, settimeOutFunc, datas, countPack, isCatch)));
             }
 
             var craw = new Crawling2();
 
             craw.Task = Task.WhenAll(ts.ToArray());
             
-            craw.Task.ContinueWith((t) =>
-                {
-                    ids.Writer.TryComplete();
-                    datas.Writer.TryComplete();
-                });
+            craw.Task.ContinueWith(completeFunc);
 
             Log.Write("c2", craw.Task);
 
             craw.Count = countPack;
 
-            craw.CompleteAdding = () =>
-            {
-                ids.Writer.TryComplete();
-                datas.Writer.TryComplete();
-            };
+            craw.CompleteAdding = () => completeFunc(Task.CompletedTask);
 
             return craw;
         }
 
         sealed class CountPack
         {
+            volatile int m_taskCount = 0;
+
+            volatile int m_htmlCount = 0;
+
+            public void AddTaskCount()
+            {
+                Interlocked.Increment(ref m_taskCount);
+            }
+
+            public void SubTaskCount()
+            {
+                Interlocked.Decrement(ref m_taskCount);
+            }
+
+            public void AddHtmlCount()
+            {
+                Interlocked.Increment(ref m_htmlCount);
+            }
+
+            public void SubHtmlCount()
+            {
+                Interlocked.Decrement(ref m_htmlCount);
+            }
+
+            public int TaskCount => m_taskCount;
+
+            public int HtmlCount => m_htmlCount;
+
 
             public int Id { get; set; }
 
@@ -916,7 +985,7 @@ namespace Pixiv
 
         public Action CompleteAdding { get; private set; }
 
-        public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} N1:{Count.TaskCount} N2:{Count.HtmlCount} C:{Task.IsCompleted}";
 
         private Crawling2()
         {
@@ -1219,11 +1288,18 @@ namespace Pixiv
 
     static class InputData
     {
-        public static int EndId
+        public static string CrawlingMaxExCount
         {
-            get => Preferences.Get(nameof(EndId), 86000201);
+            get => Preferences.Get(nameof(CrawlingMaxExCount), "1000");
 
-            set => Preferences.Set(nameof(EndId), value);
+            set => Preferences.Set(nameof(CrawlingMaxExCount), value);
+        }
+
+        public static string CrawlingEndId
+        {
+            get => Preferences.Get(nameof(CrawlingEndId), "86000201");
+
+            set => Preferences.Set(nameof(CrawlingEndId), value);
         }
 
         public static int TaskCount
@@ -1233,11 +1309,11 @@ namespace Pixiv
             set => Preferences.Set(nameof(TaskCount), value);
         }
 
-        public static int Id
+        public static int CrawlingStartId
         {
-            get => Preferences.Get(nameof(Id), 66000201);
+            get => Preferences.Get(nameof(CrawlingStartId), 66000201);
 
-            set => Preferences.Set(nameof(Id), value);
+            set => Preferences.Set(nameof(CrawlingStartId), value);
         }
 
         public static string MinId
@@ -1378,7 +1454,7 @@ namespace Pixiv
             }
         }
 
-        public static bool Create(string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
+        public static bool Create(string maxExCount, string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
@@ -1392,11 +1468,13 @@ namespace Pixiv
 
                 MaxId = maxId ?? "";
 
-                EndId = F(endId);
+                CrawlingEndId = endId ?? "";
+
+                CrawlingMaxExCount = maxExCount ?? "";
 
                 TaskCount = F(taskCount);
 
-                Id = F(id);
+                CrawlingStartId = F(id);
 
                 Min = F(min);
 
@@ -1624,7 +1702,9 @@ namespace Pixiv
         {
             InitCrawlingMoedValue();
 
-            m_endId_value.Text = InputData.EndId.ToString();
+            m_max_ex_count_value.Text = InputData.CrawlingMaxExCount;
+
+            m_endId_value.Text = InputData.CrawlingEndId.ToString();
 
             m_task_count_value.Text = InputData.TaskCount.ToString();
 
@@ -1636,7 +1716,7 @@ namespace Pixiv
 
             m_nottag_value.Text = InputData.NotTag;
 
-            m_startId_value.Text = InputData.Id.ToString();
+            m_startId_value.Text = InputData.CrawlingStartId.ToString();
 
             m_tag_value.Text = InputData.Tag;
 
@@ -1651,6 +1731,7 @@ namespace Pixiv
         bool CreateInput()
         {
             return InputData.Create(
+                m_max_ex_count_value.Text,
                 m_endId_value.Text,
                 m_task_count_value.Text,
                 m_min_id_value.Text,
@@ -1847,20 +1928,6 @@ namespace Pixiv
             }
         }
 
-        void OnStartFromLastId(object sender, EventArgs e)
-        {
-            m_start_cons.IsVisible = false;
-
-            MainThread.InvokeOnMainThreadAsync(async () =>
-            {
-                int id = await DataBase.GetMaxItemId();
-
-                m_crawling = Crawling2.Start(Crawling2.Mode.All, CRAWLING_MAX_EX_COUNT, id, null, CRAWLING_COUNT, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
-
-                Task t = m_crawling.Task.ContinueWith(CrawlingOver);
-            });
-        }
-
         static Crawling2.Mode GetCrawlingMoedValue(string s)
         {
             return (Crawling2.Mode)Enum.Parse(typeof(Crawling2.Mode), s);
@@ -1872,6 +1939,18 @@ namespace Pixiv
             MainThread.BeginInvokeOnMainThread(() => m_start_cons.IsVisible = true);
         }
 
+        static int? CreateNullInt32(string s)
+        {
+            if (int.TryParse(s, out int n))
+            {
+                return n;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
         void OnStartFromInputId(object sender, EventArgs e)
         {
             if (CreateInput())
@@ -1880,19 +1959,21 @@ namespace Pixiv
 
                 MainThread.InvokeOnMainThreadAsync(() =>
                 {
-                    int id = InputData.Id;
+                    int id = InputData.CrawlingStartId;
 
-                    int endId = InputData.EndId;
+                    int? endId = CreateNullInt32(InputData.CrawlingEndId);
+
+                    int? maxExCount = CreateNullInt32(InputData.CrawlingMaxExCount);
 
                     int taskCount = InputData.TaskCount;
 
                     var moed = GetCrawlingMoedValue(m_crawling_moed_value.SelectedItem.ToString());
 
-                    m_crawling = Crawling2.Start(moed, null, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    m_crawling = Crawling2.Start(moed, maxExCount, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
                     m_crawling.Task.ContinueWith(CrawlingOver);
 
-                    m_action = () => InputData.Id = m_crawling.Id;
+                    m_action = () => InputData.CrawlingStartId = m_crawling.Id;
                 });
             }
             else
@@ -1927,6 +2008,18 @@ namespace Pixiv
         void OnVisibleStartConsole(object sender, EventArgs e)
         {
             m_start_cons.IsVisible = false;
+        }
+
+        void OnSetLastId(object sender, EventArgs e)
+        {
+            Task tt = DataBase.GetMaxItemId().ContinueWith((t) =>
+            {
+                int n = t.Result;
+
+                MainThread.BeginInvokeOnMainThread(() => m_startId_value.Text = n.ToString());
+            });
+
+            Log.Write("setlastid", tt);
         }
     }
 }

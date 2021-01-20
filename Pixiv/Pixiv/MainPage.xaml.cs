@@ -11,6 +11,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 using Xamarin.Essentials;
@@ -515,7 +516,7 @@ namespace Pixiv
             OnlyHave
         }
 
-        static async Task PreLoadIdTask(MyChannels<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEndId)
+        static async Task PreLoadIdTask(ChannelWriter<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEndId)
         {
             startId = InitId(startId);
 
@@ -541,20 +542,20 @@ namespace Pixiv
                     startId += count;
                 }
             }
-            catch (MyChannelsCompletedException)
+            catch (ChannelClosedException)
             {
 
             }
 
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, MyChannels<int> channelsId, MyChannels<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
+        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, ChannelReader<int> channelsId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
         {
             while (true)
             {
                 try
                 {
-                    int n = await channelsId.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+                    int n = await channelsId.ReadAsync().ConfigureAwait(false);
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
@@ -563,14 +564,14 @@ namespace Pixiv
 
                     countPack.Load++;
 
-                    string html = await func(uri, channelsId.CancellationToken).ConfigureAwait(false);
+                    string html = await func(uri, CancellationToken.None).ConfigureAwait(false);
 
 
                     PixivData data = CreatePixivData.Create(n, html);
 
                     await channelsData.WriteAsync(data).ConfigureAwait(false);
                 }
-                catch (MyChannelsCompletedException)
+                catch (ChannelClosedException)
                 {
                     return;
                 }
@@ -592,7 +593,7 @@ namespace Pixiv
 
         }
 
-        static async Task SaveTask(MyChannels<PixivData> channelsData, int maxCount, CountPack countPack)
+        static async Task SaveTask(ChannelReader<PixivData> channelsData, int maxCount, CountPack countPack)
         {
             TimeSpan timeSpan = new TimeSpan(0, 5, 0);
 
@@ -659,7 +660,7 @@ namespace Pixiv
 
                 while (true)
                 {
-                    var itemTask = channelsData.ReadReportCompletedImmediatelyAsync();
+                    var itemTask = channelsData.ReadAsync().AsTask();
 
                     if (itemTask.IsCompleted)
                     {
@@ -683,7 +684,7 @@ namespace Pixiv
 
                 }
             }
-            catch (MyChannelsCompletedException)
+            catch (ChannelClosedException)
             {
 
             }
@@ -711,7 +712,7 @@ namespace Pixiv
                 {
                     if ((count++) >= maxExCount)
                     {
-                        throw new MyChannelsCompletedException();
+                        throw new ChannelClosedException();
                     }
                     else
                     {
@@ -840,9 +841,9 @@ namespace Pixiv
                 CreatePixivMHttpClient.CreateProxy(runCount, reloadCount, responseTimeOut),
                 maxExCount);
 
-            var ids = new MyChannels<int>(ID_PRE_LOAD_COUNT);
+            var ids = Channel.CreateBounded<int>(ID_PRE_LOAD_COUNT);
 
-            var datas = new MyChannels<PixivData>(ID_PRE_LOAD_COUNT);
+            var datas = Channel.CreateBounded<PixivData>(ID_PRE_LOAD_COUNT);
 
             var getListFunc = CreateGetIdFunc(mode);
 
@@ -850,13 +851,13 @@ namespace Pixiv
 
             var t1 = Task.Run(() => PreLoadIdTask(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc));
             
-            t1.ContinueWith((t) => ids.CompleteAdding());
+            t1.ContinueWith((t) => ids.Writer.TryComplete());
 
             Log.Write("c2", t1);
 
             var t2 = Task.Run(() => SaveTask(datas, ID_PRE_LOAD_COUNT, countPack));
            
-            t2.ContinueWith((t) => datas.CompleteAdding());
+            t2.ContinueWith((t) => datas.Writer.TryComplete());
 
             Log.Write("c2", t2);
 
@@ -875,8 +876,8 @@ namespace Pixiv
             
             craw.Task.ContinueWith((t) =>
                 {
-                    ids.CompleteAdding();
-                    datas.CompleteAdding();
+                    ids.Writer.TryComplete();
+                    datas.Writer.TryComplete();
                 });
 
             Log.Write("c2", craw.Task);
@@ -885,8 +886,8 @@ namespace Pixiv
 
             craw.CompleteAdding = () =>
             {
-                ids.CompleteAdding();
-                datas.CompleteAdding();
+                ids.Writer.TryComplete();
+                datas.Writer.TryComplete();
             };
 
             return craw;

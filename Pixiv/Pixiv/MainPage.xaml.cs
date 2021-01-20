@@ -416,20 +416,28 @@ namespace Pixiv
 
         }
 
-        static List<PixivData> Select_((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        static List<PixivData> Select_(int? minId, int? maxId, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
             
             var query = s_connection.Table<PixivData>();
 
             query = query.Where((v) => v.Mark >= minMark && v.Mark <= maxMark);
 
-            if (idSpan.HasValue)
+            if (minId.HasValue)
             {
-                var (minId, maxId) = idSpan.Value;
 
-                query = query.Where((v) => v.ItemId >= minId && v.ItemId <= maxId);
+                query = query.Where((v) => v.ItemId >= minId);
 
             }
+
+
+            if (maxId.HasValue)
+            {
+
+                query = query.Where((v) => v.ItemId <= maxId);
+
+            }
+
 
             if (string.IsNullOrWhiteSpace(tag) == false)
             {
@@ -470,9 +478,9 @@ namespace Pixiv
 
         }
 
-        public static Task<List<PixivData>> Select((int minId, int maxId)? idSpan, int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        public static Task<List<PixivData>> Select(int? minId, int? maxId, int minMark, int maxMark, string tag, string notTag, int offset, int count)
         {
-            return F(() => Select_(idSpan, minMark, maxMark, tag, notTag, offset, count));
+            return F(() => Select_(minId, maxId, minMark, maxMark, tag, notTag, offset, count));
         }
 
 
@@ -1393,21 +1401,11 @@ namespace Pixiv
 
         }
 
-        static (int minId, int maxId)? CreateIdSpan(string minId, string maxId)
+        public static int? CreateNullInt32(string s)
         {
-            if(string.IsNullOrWhiteSpace(minId) ||
-               string.IsNullOrWhiteSpace(maxId))
+            if (int.TryParse(s, out int n))
             {
-                return null;
-            }
-
-            int min = F(minId);
-
-            int max = F(maxId);
-
-            if (min >= 0 && min < max) 
-            {
-                return (min, max);
+                return n;
             }
             else
             {
@@ -1458,12 +1456,6 @@ namespace Pixiv
         {
             try
             {
-
-                if (CreateIdSpan(minId, maxId).HasValue == false)
-                {
-                    return false;
-                }
-
                 MinId = minId ?? "";
 
                 MaxId = maxId ?? "";
@@ -1513,13 +1505,15 @@ namespace Pixiv
 
             int count = Count;
 
-            var idSpan = CreateIdSpan(InputData.MinId, InputData.MaxId);
+            int? minId = CreateNullInt32(InputData.MinId);
+
+            int? maxId = CreateNullInt32(InputData.MaxId);
 
             return () =>
             {
                 int n = offset;
 
-                var task = DataBase.Select(idSpan, min, max, tag, nottag, offset, count);
+                var task = DataBase.Select(minId, maxId, min, max, tag, nottag, offset, count);
 
 
                 offset += count;
@@ -1939,17 +1933,7 @@ namespace Pixiv
             MainThread.BeginInvokeOnMainThread(() => m_start_cons.IsVisible = true);
         }
 
-        static int? CreateNullInt32(string s)
-        {
-            if (int.TryParse(s, out int n))
-            {
-                return n;
-            }
-            else
-            {
-                return null;
-            }
-        }
+        
 
         void OnStartFromInputId(object sender, EventArgs e)
         {
@@ -1961,9 +1945,9 @@ namespace Pixiv
                 {
                     int id = InputData.CrawlingStartId;
 
-                    int? endId = CreateNullInt32(InputData.CrawlingEndId);
+                    int? endId = InputData.CreateNullInt32(InputData.CrawlingEndId);
 
-                    int? maxExCount = CreateNullInt32(InputData.CrawlingMaxExCount);
+                    int? maxExCount = InputData.CreateNullInt32(InputData.CrawlingMaxExCount);
 
                     int taskCount = InputData.TaskCount;
 

@@ -416,25 +416,38 @@ namespace Pixiv
 
         }
 
-        static List<PixivData> Select_(int? minId, int? maxId, int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        static List<PixivData> Select_(int? minId, int? maxId, int? minMark, int? maxMark, string tag, string notTag, int offset, int count)
         {
             
             var query = s_connection.Table<PixivData>();
 
-            query = query.Where((v) => v.Mark >= minMark && v.Mark <= maxMark);
+            if (minMark.HasValue)
+            {
+                int n = minMark.Value;
+                query = query.Where((v) => v.Mark >= n);
+
+            }
+
+
+            if (maxMark.HasValue)
+            {
+                int n = maxMark.Value;
+                query = query.Where((v) => v.Mark <= n);
+
+            }
 
             if (minId.HasValue)
             {
-
-                query = query.Where((v) => v.ItemId >= minId);
+                int n = minId.Value;
+                query = query.Where((v) => v.ItemId >= n);
 
             }
 
 
             if (maxId.HasValue)
             {
-
-                query = query.Where((v) => v.ItemId <= maxId);
+                int n = maxId.Value;
+                query = query.Where((v) => v.ItemId <= n);
 
             }
 
@@ -478,7 +491,7 @@ namespace Pixiv
 
         }
 
-        public static Task<List<PixivData>> Select(int? minId, int? maxId, int minMark, int maxMark, string tag, string notTag, int offset, int count)
+        public static Task<List<PixivData>> Select(int? minId, int? maxId, int? minMark, int? maxMark, string tag, string notTag, int offset, int count)
         {
             return F(() => Select_(minId, maxId, minMark, maxMark, tag, notTag, offset, count));
         }
@@ -1339,18 +1352,18 @@ namespace Pixiv
             set => Preferences.Set(nameof(MaxId), value);
         }
 
-        public static int Min
+        public static string MinMark
         {
-            get => Preferences.Get(nameof(Min), 0);
+            get => Preferences.Get(nameof(MinMark), "");
 
-            set=> Preferences.Set(nameof(Min), value);
+            set=> Preferences.Set(nameof(MinMark), value);
         }
 
-        public static int Max
+        public static string MaxMark
         {
-            get => Preferences.Get(nameof(Max), 10000);
+            get => Preferences.Get(nameof(MaxMark), "");
 
-            set => Preferences.Set(nameof(Max), value);
+            set => Preferences.Set(nameof(MaxMark), value);
         }
 
         public static string NotTag
@@ -1468,9 +1481,9 @@ namespace Pixiv
 
                 CrawlingStartId = F(id);
 
-                Min = F(min);
+                MinMark = min ?? "";
 
-                Max = F(max);
+                MaxMark = max ?? "";
 
                 Offset = F(offset);
 
@@ -1497,9 +1510,9 @@ namespace Pixiv
 
             string tag = Tag;
 
-            int min = Min;
+            int? min = CreateNullInt32(MinMark);
 
-            int max = Max;
+            int? max = CreateNullInt32(MaxMark);
 
             int offset = Offset;
 
@@ -1714,9 +1727,9 @@ namespace Pixiv
 
             m_tag_value.Text = InputData.Tag;
 
-            m_min_value.Text = InputData.Min.ToString();
+            m_min_value.Text = InputData.MinMark.ToString();
            
-            m_max_value.Text = InputData.Max.ToString();
+            m_max_value.Text = InputData.MaxMark.ToString();
             
             m_offset_value.Text = InputData.Offset.ToString();
            

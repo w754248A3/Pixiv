@@ -6,11 +6,11 @@ namespace Pixiv
 {
     public partial class App : Application
     {
-        public App()
+        public App(string basePath)
         {
             InitializeComponent();
 
-            MainPage = new MainPage();
+            MainPage = new MainPage(basePath);
         }
 
         protected override void OnStart()

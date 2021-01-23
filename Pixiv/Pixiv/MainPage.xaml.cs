@@ -1655,7 +1655,7 @@ namespace Pixiv
 
         Preload m_reload;
 
-        public MainPage()
+        public MainPage(string basePath)
         {
             InitializeComponent();
 
@@ -1673,7 +1673,6 @@ namespace Pixiv
             {
                 Task t = DisplayAlert("错误", "需要存储权限", "确定");
 
-                Environment.Exit(0);
                 return;
             }
 

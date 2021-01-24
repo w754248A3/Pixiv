@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
@@ -136,11 +137,116 @@ namespace Pixiv
 
     static class CreatePixivMHttpClient
     {
+
+        static volatile int s_read;
+
+        static volatile int s_write;
+
+
+        static volatile int s_connect;
+
+        static volatile int s_tls;
+
+        //public static string Message => $"Read:{s_read} Write:{s_write} Connect:{s_connect} Tls:{s_tls}";
+
+        static void Add(ref int n)
+        {
+            Interlocked.Increment(ref n);
+        }
+
+
+        static void Sub(ref int n)
+        {
+            Interlocked.Decrement(ref n);
+        }
+
+        sealed class DebugStream : Stream
+        {
+            Stream m_stream;
+
+            public DebugStream(Stream stream)
+            {
+                m_stream = stream;
+            }
+
+            public override bool CanRead => true;
+
+            public override bool CanSeek => false;
+
+            public override bool CanWrite => true;
+
+            public override long Length => throw new NotImplementedException();
+
+            public override long Position { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+
+            public override void Flush()
+            {
+                throw new NotImplementedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override long Seek(long offset, SeekOrigin origin)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override void SetLength(long value)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                throw new NotImplementedException();
+            }
+
+            public override void Close()
+            {
+                m_stream.Close();
+            }
+
+
+            public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                try
+                {
+                    Add(ref s_write);
+
+                    await m_stream.WriteAsync(buffer, offset, count).ConfigureAwait(false);
+                }
+                finally
+                {
+                    Sub(ref s_write);
+                }
+            }
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                try
+                {
+                    Add(ref s_read);
+
+                    return await m_stream.ReadAsync(buffer, offset, count).ConfigureAwait(false);
+                }
+                finally
+                {
+                    Sub(ref s_read);
+                }
+
+               
+            }
+        }
+
+
         const string HOST = "www.pixivision.net";
 
         static Task CreateConnectAsync(Socket socket, Uri uri)
         {
-            return socket.ConnectAsync(HOST, 443);
+            return Task.Run(() => socket.Connect(HOST, 443));
 
             //while (true)
             //{
@@ -180,6 +286,7 @@ namespace Pixiv
             SslStream sslStream = new SslStream(stream, false);
 
             await sslStream.AuthenticateAsClientAsync(HOST).ConfigureAwait(false);
+
 
             return sslStream;
         }
@@ -253,7 +360,7 @@ namespace Pixiv
 
             Task CreateConnectAsync(Socket socket, Uri uri)
             {
-                return socket.ConnectAsync(IMG_HOST, 443);
+                return Task.Run(() => socket.Connect(IMG_HOST, 443));
 
             }
 

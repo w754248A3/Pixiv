@@ -345,10 +345,11 @@ namespace Pixiv
 
             });
 
+            client.ConnectTimeOut = new TimeSpan(0, 0, 6);
 
             client.ResponseTimeOut = responseTimeOut;
 
-            return (uri, cancellationToken) => client.GetStringAsync(uri, cancellationToken);
+            return (uri, cancellationToken) => client.GetStringAsync(uri, CancellationToken.None);
 
 
 
@@ -386,11 +387,14 @@ namespace Pixiv
 
             });
 
+            client.ConnectTimeOut = new TimeSpan(0, 0, 6);
+
+
             client.ResponseTimeOut = responseTimeOut;
 
             return (uri, referer, cancellationToken) =>
             {
-                return CatchOperationCanceledExceptionAsync(() => client.GetByteArrayAsync(uri, referer, cancellationToken), reloadCount);
+                return CatchOperationCanceledExceptionAsync(() => client.GetByteArrayAsync(uri, referer, CancellationToken.None), reloadCount);
             };
         }
     }
@@ -635,7 +639,7 @@ namespace Pixiv
         }
     }
 
-    sealed class Crawling2
+    sealed class Crawling
     {
         public enum Mode
         {
@@ -677,74 +681,47 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, Func<ValueTask<int>> getId, Func<int, ValueTask> setTimeOutId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
+        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> channelId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
         {
-            countPack.AddTaskCount();
-            try
+            while (true)
             {
-                
+                try
+                {
+                    int n = await channelId.ReadAsync().ConfigureAwait(false);
 
-                while (true)
+                    Uri uri = CreatePixivData.GetNextUri(n);
+
+
+                    countPack.Id = n;
+
+                    countPack.Load++;
+
+                    string html = await func(uri, cancellationToken).ConfigureAwait(false);
+
+
+
+                    PixivData data = CreatePixivData.Create(n, html);
+
+                    await channelsData.WriteAsync(data).ConfigureAwait(false);
+
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (ChannelClosedException)
+                {
+                    return;
+                }
+                catch (MHttpClientException e)
                 {
 
-                    ValueTask valueTask = default;
-                
-                    int n = await getId().ConfigureAwait(false);
-
-                    try
+                    if (isCatch(e) == false)
                     {
-                        
-
-                        Uri uri = CreatePixivData.GetNextUri(n);
-
-
-                        countPack.Id = n;
-
-                        countPack.Load++;
-
-                        string html;
-                        try
-                        {
-                            countPack.AddHtmlCount();
-                            html = await func(uri, CancellationToken.None).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            countPack.SubHtmlCount();
-                        }
-
-
-
-                        PixivData data = CreatePixivData.Create(n, html);
-
-                        await channelsData.WriteAsync(data).ConfigureAwait(false);
-
+                        throw;
                     }
-                    catch (MHttpClientException e)
-                    {
-                        if ((e.InnerException is MHttpResponseException) == false)
-                        {
-                            valueTask = setTimeOutId(n);
-                        }
-
-                        if (isCatch(e) == false)
-                        {
-                            throw;
-                        }
-                    }
-
-                    await valueTask.ConfigureAwait(false);
                 }
             }
-            catch (ChannelClosedException)
-            {
-
-            }
-            finally
-            {
-                countPack.SubTaskCount();
-            }
-
         }
 
         static async Task SaveTask(ChannelReader<PixivData> channelsData, int maxCount, CountPack countPack)
@@ -891,7 +868,7 @@ namespace Pixiv
         }
 
 
-        static Func<int, int, Task<List<int>>> CreateGetIdFunc(Crawling2.Mode mode)
+        static Func<int, int, Task<List<int>>> CreateGetIdFunc(Crawling.Mode mode)
         {
             if (mode == Mode.OnlyNotHave)
             {
@@ -957,16 +934,6 @@ namespace Pixiv
                     {
                         countPack.Res404++;
                     }
-                    else if (ee is OperationCanceledException oce)
-                    {
-                        countPack.TimeOut++;
-
-                    }
-                    else
-                    {
-                        
-                        Thread.Sleep(new TimeSpan(0, 0, 2));
-                    }
 
                     return true;
                 }
@@ -979,7 +946,61 @@ namespace Pixiv
             };
         }
 
-        public static Crawling2 Start(Crawling2.Mode mode, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
+        static Func<Uri, CancellationToken, Task<string>> CreateSocketExceptionAndOperationCanceledExceptionAsync(Func<Uri, CancellationToken, Task<string>> func, CountPack countPack)
+        {
+            return async (uri, tokan) =>
+            {
+                while (true)
+                {
+
+
+                    try
+                    {
+                        try
+                        {
+                            countPack.AddHtmlCount();
+
+                            return await func(uri, tokan).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            countPack.SubHtmlCount();
+                        }
+                    }
+                    catch (MHttpClientException e)
+                    {
+                        if (e.InnerException is OperationCanceledException)
+                        {
+                            if (tokan.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException();
+                            }
+                            else
+                            {
+                                countPack.TimeOut++;
+                            }
+                        }
+                        else
+                        {
+                            if (e.InnerException is SocketException ||
+                                e.InnerException is IOException ||
+                                e.InnerException is ObjectDisposedException)
+                            {
+
+                            }
+                            else
+                            {
+                                throw;
+                            }
+                        }
+                    }
+
+                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+                }
+            };
+        }
+
+        public static Crawling Start(Crawling.Mode mode, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
         {
            
 
@@ -993,11 +1014,13 @@ namespace Pixiv
                 CreatePixivMHttpClient.CreateProxy(runCount, reloadCount, responseTimeOut),
                 maxExCount);
 
+            clientFunc = CreateSocketExceptionAndOperationCanceledExceptionAsync(clientFunc, countPack);
+
             var ids = Channel.CreateBounded<int>(ID_PRE_LOAD_COUNT);
 
             var datas = Channel.CreateBounded<PixivData>(ID_PRE_LOAD_COUNT);
 
-            var timeOuts = Channel.CreateUnbounded<int>();
+            var source = new CancellationTokenSource();
 
             Action<Task> completeFunc = (t) =>
             {
@@ -1005,22 +1028,8 @@ namespace Pixiv
 
                 datas.Writer.TryComplete();
 
-                timeOuts.Writer.TryComplete();
+                source.Cancel();
             };
-
-            Func<ValueTask<int>> getIdFunc = () =>
-            {
-                if (timeOuts.Reader.TryRead(out int n))
-                {
-                    return new ValueTask<int>(n);
-                }
-                else
-                {
-                    return ids.Reader.ReadAsync();
-                }
-            };
-
-            Func<int, ValueTask> settimeOutFunc = (n) => timeOuts.Writer.WriteAsync(n);
 
             var getListFunc = CreateGetIdFunc(mode);
 
@@ -1044,10 +1053,10 @@ namespace Pixiv
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, getIdFunc, settimeOutFunc, datas, countPack, isCatch)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, source.Token, ids, datas, countPack, isCatch)));
             }
 
-            var craw = new Crawling2();
+            var craw = new Crawling();
 
             craw.Task = Task.WhenAll(ts.ToArray());
             
@@ -1113,9 +1122,9 @@ namespace Pixiv
 
         public Action CompleteAdding { get; private set; }
 
-        public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} N1:{Count.TaskCount} N2:{Count.HtmlCount} C:{Task.IsCompleted}";
+        public string Message => $"ID:{Count.Id} L:{Count.Load} S:{Count.Save} R:{Count.Res404} T:{Count.TimeOut} N:{Count.HtmlCount} C:{Task.IsCompleted}";
 
-        private Crawling2()
+        private Crawling()
         {
 
         }
@@ -1754,7 +1763,7 @@ namespace Pixiv
 
         readonly Awa m_awa = new Awa();
 
-        Crawling2 m_crawling;
+        Crawling m_crawling;
 
         Action m_action;
 
@@ -1804,7 +1813,7 @@ namespace Pixiv
 
         void InitCrawlingMoedValue()
         {
-            var vs = Enum.GetNames(typeof(Crawling2.Mode));
+            var vs = Enum.GetNames(typeof(Crawling.Mode));
 
             m_crawling_moed_value.ItemsSource = vs;
 
@@ -2041,9 +2050,9 @@ namespace Pixiv
             }
         }
 
-        static Crawling2.Mode GetCrawlingMoedValue(string s)
+        static Crawling.Mode GetCrawlingMoedValue(string s)
         {
-            return (Crawling2.Mode)Enum.Parse(typeof(Crawling2.Mode), s);
+            return (Crawling.Mode)Enum.Parse(typeof(Crawling.Mode), s);
 
         }
 
@@ -2072,7 +2081,7 @@ namespace Pixiv
 
                     var moed = GetCrawlingMoedValue(m_crawling_moed_value.SelectedItem.ToString());
 
-                    m_crawling = Crawling2.Start(moed, maxExCount, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    m_crawling = Crawling.Start(moed, maxExCount, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
                     m_crawling.Task.ContinueWith(CrawlingOver);
 

@@ -106,7 +106,8 @@
         <CollectionView x:Name="m_collView"
                         SelectionMode="Single"
                         SelectionChanged="OnCollectionViewSelectionChanged"
-                        Scrolled="OnScrolled">
+                        Scrolled="OnScrolled"
+                        ItemsUpdatingScrollMode="KeepLastItemInView">
             <CollectionView.ItemsLayout>
                 <GridItemsLayout Orientation="Vertical" 
                                  Span="2"

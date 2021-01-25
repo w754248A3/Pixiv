@@ -2074,10 +2074,6 @@ namespace Pixiv
             m_imageSources.Add(date);
 
             await Task.Yield();
-
-            m_collView.ScrollTo(m_imageSources.Count - 1, position: ScrollToPosition.End, animate: false);
-
-            await Task.Yield();
         }
 
         

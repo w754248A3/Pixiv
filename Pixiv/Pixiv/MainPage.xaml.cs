@@ -135,6 +135,119 @@ namespace Pixiv
 
     }
 
+    public static class ExceptionEx
+    {
+        public static T InnerException<T>(this Exception e) where T : Exception
+        {
+            if (e is null)
+            {
+                return null;
+            }
+            else
+            {
+                if (e.InnerException is T ee)
+                {
+                    return ee;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        public static bool IsNull(this Exception e)
+        {
+            return e is null;
+        }
+
+
+        public static bool IsNotNull(this Exception e)
+        {
+            return !IsNull(e);
+        }
+    }
+
+    public enum TaskReTryFlag
+    {
+        None,
+
+        Retry
+    }
+
+    sealed class TaskReTryBuild<T>
+    {
+
+        public Func<Func<CancellationToken, Task<T>>, CancellationToken, Task<T>> CreateRetryFunc()
+        {
+            Func<Task<T>, TaskReTryFlag> isRetryFunc = CreateIsRetryFunc();
+
+            return async (func, tokan) =>
+            {
+
+
+                while (true)
+                {
+                    if (tokan.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException();
+                    }
+                    else
+                    {
+                        var task = await func(tokan).ContinueWith((t) => t).ConfigureAwait(false);
+
+                        var v = isRetryFunc(task);
+                        if (v == TaskReTryFlag.None)
+                        {
+                            return await task.ConfigureAwait(false);
+                        }
+                    }
+                }
+            };
+        }
+
+
+        public static TaskReTryBuild<T> Create()
+        {
+            return new TaskReTryBuild<T>();
+        }
+
+        List<Func<Task<T>, TaskReTryFlag>> m_list = new List<Func<Task<T>, TaskReTryFlag>>();
+
+        private TaskReTryBuild()
+        {
+
+        }
+
+
+        public TaskReTryBuild<T> Add(Func<Task<T>, TaskReTryFlag> func)
+        {
+            m_list.Add(func);
+
+            return this;
+        }
+
+
+        Func<Task<T>, TaskReTryFlag> CreateIsRetryFunc()
+        {
+            var vs = m_list.ToArray();
+
+            return (task) =>
+            {
+                foreach (var func in vs)
+                {
+                    var v = func(task);
+                    if (v == TaskReTryFlag.Retry)
+                    {
+                        return v;
+                    }
+                }
+
+                return TaskReTryFlag.None;
+            };
+        }
+    }
+
     static class CreatePixivMHttpClient
     {
 
@@ -353,8 +466,6 @@ namespace Pixiv
 
             
         }
-
-        
 
         public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
         {
@@ -706,7 +817,7 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> channelId, ChannelWriter<PixivData> channelsData, CountPack countPack, Func<Exception, bool> isCatch)
+        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> channelId, ChannelWriter<PixivData> channelsData, CountPack countPack)
         {
             while (true)
             {
@@ -721,8 +832,19 @@ namespace Pixiv
 
                     countPack.Load++;
 
-                    string html = await func(uri, cancellationToken).ConfigureAwait(false);
+                    string html;
+                    try
+                    {
+                        countPack.AddHtmlCount();
 
+                        html = await func(uri, cancellationToken).ConfigureAwait(false);
+
+                    }
+                    finally
+                    {
+                        countPack.SubHtmlCount();
+                    }
+                    
 
 
                     PixivData data = CreatePixivData.Create(n, html);
@@ -740,11 +862,7 @@ namespace Pixiv
                 }
                 catch (MHttpClientException e)
                 {
-
-                    if (isCatch(e) == false)
-                    {
-                        throw;
-                    }
+                    Log.Write("client", e);
                 }
             }
         }
@@ -848,47 +966,48 @@ namespace Pixiv
             await DataBase.AddAll(list).ConfigureAwait(false);
         }
 
-        static Func<Uri,CancellationToken, Task<T>> CatchMHttpResponseExceptionAsync<T>(Func<Uri, CancellationToken, Task<T>> func, int maxExCount)
+        static Func<Task<string>, TaskReTryFlag> CreateMaxExCountFunc(int maxExCount)
         {
             int count = 0;
 
-            return async (uri, cancellationToken) =>
+            return (task) =>
             {
-                try
+
+                if (task.IsCompletedSuccessfully)
                 {
-
-                    var v = await func(uri, cancellationToken).ConfigureAwait(false);
-
                     count = 0;
 
-                    return v;
                 }
-                catch (MHttpClientException e)
-                when (e.InnerException is MHttpResponseException)
+                else
                 {
-                    if ((count++) >= maxExCount)
+                    if(task.Exception
+                    .InnerException<MHttpClientException>()
+                    .InnerException<MHttpResponseException>()
+                    .IsNotNull())
                     {
-                        throw new ChannelClosedException();
+                        if ((count++) >= maxExCount)
+                        {
+                            throw new ChannelClosedException();
+                        }
                     }
-                    else
-                    {
-                        throw;
-                    }
+                    
+
                 }
 
+                return TaskReTryFlag.None;
             };
         }
 
-        static Func<Uri, CancellationToken, Task<string>> CreateClientFunc(Func<Uri, CancellationToken, Task<string>> func, int? maxExCount)
+        static void AddMaxExCountFunc(TaskReTryBuild<string> build, int? maxExCount)
         {
 
             if (maxExCount is null)
             {
-                return func;
+                
             }
             else
             {
-                return CatchMHttpResponseExceptionAsync(func, maxExCount.Value);
+                build.Add(CreateMaxExCountFunc(maxExCount.Value));
             }
         }
 
@@ -946,82 +1065,54 @@ namespace Pixiv
 
         }
 
-        static Func<Exception, bool> CreateIsCatchFunc(CountPack countPack)
+
+        static Func<Task<string>, TaskReTryFlag> CreateReTryFunc()
         {
-            return (e) =>
+            return (task) =>
             {
-                if (e is MHttpClientException mhce)
+                if (task.Exception.InnerException is MHttpClientException e)
                 {
+                    if (e.InnerException is OperationCanceledException)
+                    {
+                        return TaskReTryFlag.Retry;
+                    }
 
-                    var ee = mhce.InnerException;
+                    if (e.InnerException is SocketException ||
+                        e.InnerException is IOException ||
+                        e.InnerException is ObjectDisposedException)
+                    {
+                        return TaskReTryFlag.Retry;
+                    }
 
-                    if (ee is MHttpResponseException)
+                    return TaskReTryFlag.None;
+                }
+                else
+                {
+                    return TaskReTryFlag.None;
+                }
+            };
+        }
+
+        static Func<Task<string>, TaskReTryFlag> CreateCountFunc(CountPack countPack)
+        {
+            return (task) =>
+            {
+                if(task.Exception.InnerException is MHttpClientException e)
+                {
+                    if (e.InnerException is MHttpResponseException)
                     {
                         countPack.Res404++;
                     }
 
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
-
-
-            };
-        }
-
-        static Func<Uri, CancellationToken, Task<string>> CreateSocketExceptionAndOperationCanceledExceptionAsync(Func<Uri, CancellationToken, Task<string>> func, CountPack countPack)
-        {
-            return async (uri, tokan) =>
-            {
-                while (true)
-                {
-
-
-                    try
+                    if(e.InnerException is OperationCanceledException)
                     {
-                        try
-                        {
-                            countPack.AddHtmlCount();
-
-                            return await func(uri, tokan).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            countPack.SubHtmlCount();
-                        }
-                    }
-                    catch (MHttpClientException e)
-                    {
-                        if (e.InnerException is OperationCanceledException)
-                        {
-                            if (tokan.IsCancellationRequested)
-                            {
-                                throw new OperationCanceledException();
-                            }
-                            else
-                            {
-                                countPack.TimeOut++;
-                            }
-                        }
-                        else
-                        {
-                            if (e.InnerException is SocketException ||
-                                e.InnerException is IOException ||
-                                e.InnerException is ObjectDisposedException)
-                            {
-
-                            }
-                            else
-                            {
-                                throw;
-                            }
-                        }
+                        countPack.TimeOut++;
                     }
 
-                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
                 }
+
+
+                return TaskReTryFlag.None;
             };
         }
 
@@ -1035,11 +1126,23 @@ namespace Pixiv
 
             var countPack = new CountPack();
 
-            var clientFunc = CreateClientFunc(
-                CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut),
-                maxExCount);
 
-            clientFunc = CreateSocketExceptionAndOperationCanceledExceptionAsync(clientFunc, countPack);
+            var clientFunc = CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut);
+
+            var build = TaskReTryBuild<string>.Create();
+
+            build.Add(CreateReTryFunc());
+
+            AddMaxExCountFunc(build, maxExCount);
+
+            build.Add(CreateCountFunc(countPack));
+
+            var buildFunc = build.CreateRetryFunc();
+
+            Func<Uri, CancellationToken, Task<string>> func = (uri, tokan) =>
+            {
+                return buildFunc((tokan) => clientFunc(uri, tokan), tokan);
+            };
 
             var ids = Channel.CreateBounded<int>(ID_PRE_LOAD_COUNT);
 
@@ -1074,11 +1177,9 @@ namespace Pixiv
 
             var ts = new List<Task>();
 
-            var isCatch = CreateIsCatchFunc(countPack);
-
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(clientFunc, source.Token, ids, datas, countPack, isCatch)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(func, source.Token, ids, datas, countPack)));
             }
 
             var craw = new Crawling();
@@ -1098,19 +1199,8 @@ namespace Pixiv
 
         sealed class CountPack
         {
-            volatile int m_taskCount = 0;
-
-            volatile int m_htmlCount = 0;
-
-            public void AddTaskCount()
-            {
-                Interlocked.Increment(ref m_taskCount);
-            }
-
-            public void SubTaskCount()
-            {
-                Interlocked.Decrement(ref m_taskCount);
-            }
+            
+            int m_htmlCount = 0;
 
             public void AddHtmlCount()
             {
@@ -1121,8 +1211,6 @@ namespace Pixiv
             {
                 Interlocked.Decrement(ref m_htmlCount);
             }
-
-            public int TaskCount => m_taskCount;
 
             public int HtmlCount => m_htmlCount;
 

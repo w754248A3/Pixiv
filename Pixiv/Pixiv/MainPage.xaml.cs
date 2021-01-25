@@ -309,28 +309,54 @@ namespace Pixiv
 
         //}
 
-        static async Task<T> CatchOperationCanceledExceptionAsync<T>(Func<Task<T>> func, int reloadCount)
+        static Func<Uri,Uri, CancellationToken, Task<byte[]>> CatchOperationCanceledExceptionAsync(Func<Uri, Uri, Task<byte[]>> func)
         {
-
-            foreach (var item in Enumerable.Range(0, reloadCount))
+            return async (uri, referer, tokan) =>
             {
-                try
+                while (true)
                 {
-                    return await func().ConfigureAwait(false);
-                }
-                catch (MHttpClientException e)
-                when (e.InnerException is OperationCanceledException)
-                {
+                    try
+                    {
+                        return await func(uri, referer).ConfigureAwait(false);
+                    }
+                    catch (MHttpClientException e)
+                    {
+                        if(e.InnerException is OperationCanceledException)
+                        {
+                            if (tokan.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException();
+                            }
+                            
+                        }
+                        else
+                        {
+                            if (e.InnerException is SocketException ||
+                                e.InnerException is ObjectDisposedException ||
+                                e.InnerException is IOException)
+                            {
+
+                            }
+                            else
+                            {
+                                throw;
+                            }
+                        }
+
+                        
+                    }
+
                     await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
                 }
-            }
+            };
 
-            return await func().ConfigureAwait(false);
+
+            
         }
 
         
 
-        public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, int reloadCount, TimeSpan responseTimeOut)
+        public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
         {
             
 
@@ -355,7 +381,7 @@ namespace Pixiv
 
         }
 
-        public static Func<Uri, Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, int reloadCount, TimeSpan responseTimeOut)
+        public static Func<Uri, Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, TimeSpan responseTimeOut)
         {
             const string IMG_HOST = "s.pximg.net";
 
@@ -392,10 +418,9 @@ namespace Pixiv
 
             client.ResponseTimeOut = responseTimeOut;
 
-            return (uri, referer, cancellationToken) =>
-            {
-                return CatchOperationCanceledExceptionAsync(() => client.GetByteArrayAsync(uri, referer, CancellationToken.None), reloadCount);
-            };
+            Func<Uri, Uri, Task<byte[]>> func = (uri, referer) => client.GetByteArrayAsync(uri, referer, CancellationToken.None);
+
+            return CatchOperationCanceledExceptionAsync(func);
         }
     }
 
@@ -1000,7 +1025,7 @@ namespace Pixiv
             };
         }
 
-        public static Crawling Start(Crawling.Mode mode, int? maxExCount, int startId, int? endId, int runCount, int reloadCount, TimeSpan responseTimeOut)
+        public static Crawling Start(Crawling.Mode mode, int? maxExCount, int startId, int? endId, int runCount, TimeSpan responseTimeOut)
         {
            
 
@@ -1011,7 +1036,7 @@ namespace Pixiv
             var countPack = new CountPack();
 
             var clientFunc = CreateClientFunc(
-                CreatePixivMHttpClient.CreateProxy(runCount, reloadCount, responseTimeOut),
+                CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut),
                 maxExCount);
 
             clientFunc = CreateSocketExceptionAndOperationCanceledExceptionAsync(clientFunc, countPack);
@@ -1164,7 +1189,7 @@ namespace Pixiv
 
         public int Count => m_count.Count;
 
-        public LoadBigImg(string basePath, int bigImgResponseSize, int reLoadCount, TimeSpan responseTimeOut)
+        public LoadBigImg(string basePath, int bigImgResponseSize, TimeSpan responseTimeOut)
         {
             
             Directory.CreateDirectory(basePath);
@@ -1172,7 +1197,7 @@ namespace Pixiv
             m_basePath = basePath;
 
 
-            m_client = CreatePixivMHttpClient.Create(6, bigImgResponseSize, reLoadCount, responseTimeOut);
+            m_client = CreatePixivMHttpClient.Create(6, bigImgResponseSize, responseTimeOut);
         }
 
         async Task SaveImage(byte[] buffer)
@@ -1222,31 +1247,7 @@ namespace Pixiv
 
     sealed class Preload
     {
-        readonly MyChannels<Data> m_channels;
-
-        readonly Action m_Complete;
-
-        private Preload(MyChannels<Data> channels, Action complete)
-        {
-            m_channels = channels;
-            m_Complete = complete;
-        }
-
-        public Task<Data> ReadAsync()
-        {
-            return Task.Run(m_channels.ReadReportCompletedImmediatelyAsync);
-        } 
-
-
-        public void Complete()
-        {
-
-
-            m_Complete();
-
-            m_channels.CompleteAdding();
-
-        }
+        
 
         static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, CancellationToken, Task<byte[]>> func, PixivData data, CancellationToken cancellationToken)
         {
@@ -1259,7 +1260,7 @@ namespace Pixiv
             return func(uri, referer, cancellationToken);
         }
 
-        static async Task CreateLoadImg(Func<Uri, Uri, CancellationToken, Task<byte[]>> func, MyChannels<PixivData> source, MyChannels<Data> destion)
+        static async Task CreateLoadImg(Func<Uri, Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<Data> destion)
         {
             while (true)
             {
@@ -1267,9 +1268,13 @@ namespace Pixiv
 
                 try
                 {
-                    data = await source.ReadReportCompletedImmediatelyAsync().ConfigureAwait(false);
+                    data = await source.ReadAsync(cancellationToken).ConfigureAwait(false);
                 }
-                catch (MyChannelsCompletedException)
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (ChannelClosedException)
                 {
                     return;
                 }
@@ -1278,7 +1283,7 @@ namespace Pixiv
                 
                 try
                 {
-                    buffer = await GetImageFromWebAsync(func, data, source.CancellationToken).ConfigureAwait(false);
+                    buffer = await GetImageFromWebAsync(func, data, cancellationToken).ConfigureAwait(false);
                 }
                 catch (MHttpClientException)
                 {
@@ -1291,7 +1296,7 @@ namespace Pixiv
                 {
                     await destion.WriteAsync(item).ConfigureAwait(false);
                 }
-                catch (MyChannelsCompletedException)
+                catch (ChannelClosedException)
                 {
                     return;
                 }
@@ -1299,7 +1304,7 @@ namespace Pixiv
             }
         }
 
-        static async Task CreateLoadData(MyChannels<PixivData> destion, Func<Task<List<PixivData>>> func)
+        static async Task CreateLoadData(ChannelWriter<PixivData> destion, Func<Task<List<PixivData>>> func)
         {
             while (true)
             {
@@ -1318,7 +1323,7 @@ namespace Pixiv
                         await destion.WriteAsync(item).ConfigureAwait(false);
                     }
                 }
-                catch (MyChannelsCompletedException)
+                catch (ChannelClosedException)
                 {
                     return;
                 }
@@ -1327,19 +1332,31 @@ namespace Pixiv
         }
 
 
-        public static Preload Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount, int responseSize, int reLoadCount, TimeSpan responseTimeOut)
+        public static Preload Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount, int responseSize, TimeSpan responseTimeOut)
         {
 
-            var datas = new MyChannels<PixivData>(dataLoadCount);
+            var datas = Channel.CreateBounded<PixivData>(dataLoadCount);
 
-            var imgs = new MyChannels<Data>(imgLoadCount);
+            var imgs = Channel.CreateBounded<Data>(imgLoadCount);
 
-            var client = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, reLoadCount, responseTimeOut);
+            var source = new CancellationTokenSource();
+
+            Action<Task> cencelAction = (t) =>
+            {
+
+                datas.Writer.TryComplete();
+
+                imgs.Writer.TryComplete();
+
+                source.Cancel();
+            };
+
+            var client = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, responseTimeOut);
 
 
             var t1 = Task.Run(() => CreateLoadData(datas, func));
            
-            t1.ContinueWith((t) => datas.CompleteAdding());
+            t1.ContinueWith(cencelAction);
 
             Log.Write("preload", t1);
 
@@ -1347,7 +1364,7 @@ namespace Pixiv
 
             foreach (var item in Enumerable.Range(0, imgLoadCount)) 
             {
-                Task t = Task.Run(() => CreateLoadImg(client, datas, imgs));
+                Task t = Task.Run(() => CreateLoadImg(client, source.Token, datas, imgs));
 
                 list.Add(t);
             }
@@ -1355,11 +1372,42 @@ namespace Pixiv
 
             var t2 = Task.WhenAll(list.ToArray());
           
-            t2.ContinueWith((t) => imgs.CompleteAdding());
+            t2.ContinueWith(cencelAction);
 
             Log.Write("preload", t2);
 
-            return new Preload(imgs, datas.CompleteAdding);
+            var preLoad = new Preload();
+
+            preLoad.Cencel = () => cencelAction(Task.CompletedTask);
+
+            preLoad.Read = () => Task.Run(() => imgs.Reader.ReadAsync(source.Token).AsTask());
+
+
+            return preLoad;
+        }
+
+
+        Action Cencel { get; set; }
+
+        Func<Task<Data>> Read { get; set; }
+
+
+        public Task<Data> ReadAsync()
+        {
+            return Read();
+        }
+
+
+        public void Complete()
+        {
+
+            Cencel();
+
+        }
+
+        private Preload()
+        {
+
         }
     }
 
@@ -1707,8 +1755,6 @@ namespace Pixiv
     {
         const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
 
-        const int SMALL_IMG_RELOAD_COUNT = 3;
-
         const int SMALL_IMG_TIMEOUT = 30;
 
 
@@ -1719,8 +1765,6 @@ namespace Pixiv
 
         const int BIG_IMG_RESPONSE_SIZE = 1024 * 1024 * 20;
 
-        const int BIG_IMG_RELOAD_COUNT = 6;
-
         const int BIG_IMG_TIMEOUT = 240;
 
 
@@ -1730,8 +1774,6 @@ namespace Pixiv
         const int CRAWLING_COUNT = 64;
 
         const int CRAWLING_MAX_EX_COUNT = 1000;
-
-        const int CRAWLING_RELOAD_COUNT = 3;
 
         const int CRAWLING_TIMEOUT = 10;
 
@@ -1759,7 +1801,7 @@ namespace Pixiv
 
         readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
 
-        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, BIG_IMG_RESPONSE_SIZE, BIG_IMG_RELOAD_COUNT, new TimeSpan(0, 0, BIG_IMG_TIMEOUT));
+        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, BIG_IMG_TIMEOUT));
 
         readonly Awa m_awa = new Awa();
 
@@ -1921,7 +1963,7 @@ namespace Pixiv
             {
                 m_cons.IsVisible = false;
 
-                m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, SMALL_IMG_RELOAD_COUNT, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
+                m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
 
                 m_reloadTask = Start(m_reload);
 
@@ -1968,7 +2010,11 @@ namespace Pixiv
                     await Task.Delay(new TimeSpan(0, 0, IMG_TIMESPAN));
                 }
             }
-            catch (MyChannelsCompletedException)
+            catch (OperationCanceledException)
+            {
+
+            }
+            catch (ChannelClosedException)
             {
                 
             }
@@ -2081,7 +2127,7 @@ namespace Pixiv
 
                     var moed = GetCrawlingMoedValue(m_crawling_moed_value.SelectedItem.ToString());
 
-                    m_crawling = Crawling.Start(moed, maxExCount, id, endId, taskCount, CRAWLING_RELOAD_COUNT, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
+                    m_crawling = Crawling.Start(moed, maxExCount, id, endId, taskCount, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
 
                     m_crawling.Task.ContinueWith(CrawlingOver);
 

@@ -177,6 +177,7 @@ namespace Pixiv
 
     sealed class TaskReTryBuild<T>
     {
+       
 
         public Func<Func<CancellationToken, Task<T>>, CancellationToken, Task<T>> CreateRetryFunc()
         {
@@ -201,6 +202,7 @@ namespace Pixiv
                         {
                             return await task.ConfigureAwait(false);
                         }
+                        //假如重试,则会吞噬异常,必须保证回调,能处理异常
                     }
                 }
             };
@@ -354,73 +356,27 @@ namespace Pixiv
             }
         }
 
-
-        const string HOST = "www.pixivision.net";
-
-        static Task CreateConnectAsync(Socket socket, Uri uri)
+        static Func<Socket, Uri, Task> CreateCreateConnectAsyncFunc(string host, int port)
         {
-            return Task.Run(() => socket.Connect(HOST, 443));
-
-            //while (true)
-            //{
-            //    try
-            //    {
-            //        await socket.ConnectAsync(HOST, 443).ConfigureAwait(false);
-
-            //        return;
-            //    }
-            //    catch(SocketException)
-            //    {
-            //        //var c = e.SocketErrorCode;
-
-            //        //if (c == SocketError.TryAgain ||
-            //        //    c == SocketError.TimedOut ||
-            //        //    c == SocketError.NetworkUnreachable ||
-            //        //    c == SocketError.NetworkDown ||
-            //        //    c == SocketError.HostUnreachable)
-            //        //{
-            //        //    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-            //        //}
-            //        //else
-            //        //{
-            //        //    throw;
-            //        //}
-
-            //        await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-            //    }
-            //}
-
-
+            return (socket, uri) => Task.Run(() => socket.Connect(host, port));
         }
 
-        static async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
+        static Func<Stream, Uri, Task<Stream>> CreateCreateAuthenticateAsyncFunc(string host)
         {
+            return async (stream, uri) =>
+            {
+                SslStream sslStream = new SslStream(stream, false);
 
-            SslStream sslStream = new SslStream(stream, false);
-
-            await sslStream.AuthenticateAsClientAsync(HOST).ConfigureAwait(false);
+                await sslStream.AuthenticateAsClientAsync(host).ConfigureAwait(false);
 
 
-            return sslStream;
+                return sslStream;
+            };
+
+            
         }
 
-        //static async Task<T> CatchSocketExceptionAsync<T>(Func<Task<T>> func)
-        //{
-        //    while (true)
-        //    {
-        //        try
-        //        {
-        //            return await func().ConfigureAwait(false);
-        //        }
-        //        catch (MHttpClientException e)
-        //        when (e.InnerException is SocketException)
-        //        {
-        //            await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-        //        }
-        //    }
 
-
-        //}
 
         static Func<Uri,Uri, CancellationToken, Task<byte[]>> CatchOperationCanceledExceptionAsync(Func<Uri, Uri, Task<byte[]>> func)
         {
@@ -469,13 +425,16 @@ namespace Pixiv
 
         public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
         {
-            
+
+
+            const string HOST = "www.pixivision.net";
+
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = CreateConnectAsync,
+                ConnectCallback = CreateCreateConnectAsyncFunc(HOST, 443),
 
-                AuthenticateCallback = CreateAuthenticateAsync,
+                AuthenticateCallback = CreateCreateAuthenticateAsyncFunc(HOST),
 
                 MaxStreamPoolCount = maxStreamPoolCount
 
@@ -496,27 +455,11 @@ namespace Pixiv
         {
             const string IMG_HOST = "s.pximg.net";
 
-            Task CreateConnectAsync(Socket socket, Uri uri)
-            {
-                return Task.Run(() => socket.Connect(IMG_HOST, 443));
-
-            }
-
-            async Task<Stream> CreateAuthenticateAsync(Stream stream, Uri uri)
-            {
-
-                SslStream sslStream = new SslStream(stream, false);
-
-                await sslStream.AuthenticateAsClientAsync(IMG_HOST).ConfigureAwait(false);
-
-                return sslStream;
-            }
-
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = CreateConnectAsync,
+                ConnectCallback = CreateCreateConnectAsyncFunc(IMG_HOST, 443),
 
-                AuthenticateCallback = CreateAuthenticateAsync,
+                AuthenticateCallback = CreateCreateAuthenticateAsyncFunc(IMG_HOST),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 
@@ -785,9 +728,7 @@ namespace Pixiv
         }
 
         static async Task PreLoadIdTask(ChannelWriter<int> channelsId, int startId, int count, Func<int, int, Task<List<int>>> getList, Func<int, bool> isEndId)
-        {
-            startId = InitId(startId);
-
+        { 
             try
             {
 
@@ -869,8 +810,9 @@ namespace Pixiv
             }
         }
 
-        static async Task SaveTask(ChannelReader<PixivData> channelsData, int maxCount, CountPack countPack)
+        static async Task SaveTask(ChannelReader<PixivData> channelsData, int maxCount, Action<int> setSaveCount)
         {
+            
             TimeSpan timeSpan = new TimeSpan(0, 5, 0);
 
             Task timeOutTask = Task.Delay(timeSpan);
@@ -892,6 +834,8 @@ namespace Pixiv
             };
             
             var list = new List<PixivData>(maxCount);
+            
+            int saveCount = 0;
 
             Func<Task> addAll = () =>
             {
@@ -899,7 +843,9 @@ namespace Pixiv
 
                 list = new List<PixivData>(maxCount);
 
-                countPack.Save += v.Count;
+                saveCount += v.Count;
+
+                setSaveCount(saveCount);
 
                 return DataBase.AddAll(v);
 
@@ -1075,12 +1021,8 @@ namespace Pixiv
                 if (task.Exception.IsNotNull() &&
                     task.Exception.InnerException is MHttpClientException e)
                 {
-                    if (e.InnerException is OperationCanceledException)
-                    {
-                        return TaskReTryFlag.Retry;
-                    }
-
-                    if (e.InnerException is SocketException ||
+                    if (e.InnerException is OperationCanceledException ||
+                        e.InnerException is SocketException ||
                         e.InnerException is IOException ||
                         e.InnerException is ObjectDisposedException)
                     {
@@ -1100,7 +1042,8 @@ namespace Pixiv
         {
             return (task) =>
             {
-                if(task.Exception.InnerException is MHttpClientException e)
+                if (task.Exception.IsNotNull() &&
+                    task.Exception.InnerException is MHttpClientException e)
                 {
                     if (e.InnerException is MHttpResponseException)
                     {
@@ -1119,19 +1062,23 @@ namespace Pixiv
             };
         }
 
-        public static Crawling Start(Crawling.Mode mode, int? maxExCount, int startId, int? endId, int runCount, TimeSpan responseTimeOut)
+        static Action<Task> CreateCencelAction(ChannelWriter<int> ids, ChannelWriter<PixivData> datas, CancellationTokenSource source)
         {
-           
+            return (t) =>
+            {
 
-            const int ID_PRE_LOAD_COUNT = 1000;
+                ids.TryComplete();
 
-            startId -= ID_PRE_LOAD_COUNT * 4;
+                datas.TryComplete();
 
-            var countPack = new CountPack();
+                source.Cancel();
+            };
 
+        }
 
-            var clientFunc = CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut);
-
+        static Func<Uri, CancellationToken, Task<string>> CreateFunc(int? maxExCount, int runCount, TimeSpan responseTimeOut, CountPack countPack)
+        {
+            
             var build = TaskReTryBuild<string>.Create();
 
             build.Add(CreateReTryFunc());
@@ -1142,42 +1089,17 @@ namespace Pixiv
 
             var buildFunc = build.CreateRetryFunc();
 
-            Func<Uri, CancellationToken, Task<string>> func = (uri, tokan) =>
+            var func = CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut);
+
+
+            return (uri, tokan) =>
             {
-                return buildFunc((tokan) => clientFunc(uri, tokan), tokan);
+                return buildFunc((tokan) => func(uri, tokan), tokan);
             };
+        }
 
-            var ids = Channel.CreateBounded<int>(ID_PRE_LOAD_COUNT);
-
-            var datas = Channel.CreateBounded<PixivData>(ID_PRE_LOAD_COUNT);
-
-            var source = new CancellationTokenSource();
-
-            Action<Task> completeFunc = (t) =>
-            {
-                ids.Writer.TryComplete();
-
-                datas.Writer.TryComplete();
-
-                source.Cancel();
-            };
-
-            var getListFunc = CreateGetIdFunc(mode);
-
-            var getIsendFunc = CreateEndFunc(endId);
-
-            var t1 = Task.Run(() => PreLoadIdTask(ids, startId, ID_PRE_LOAD_COUNT, getListFunc, getIsendFunc));
-            
-            t1.ContinueWith(completeFunc);
-
-            Log.Write("c2", t1);
-
-            var t2 = Task.Run(() => SaveTask(datas, ID_PRE_LOAD_COUNT, countPack));
-           
-            t2.ContinueWith(completeFunc);
-
-            Log.Write("c2", t2);
-
+        static Task CreateTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> ids, ChannelWriter<PixivData> datas, int runCount, CountPack countPack)
+        {
             var ts = new List<Task>();
 
             Action<int> onIdAction = (n) =>
@@ -1196,16 +1118,43 @@ namespace Pixiv
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(func, source.Token, ids, datas, onIdAction, endIdAction)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(func, cancellationToken, ids, datas, onIdAction, endIdAction)));
             }
+
+            return Task.WhenAll(ts.ToArray());
+        }
+
+        public static Crawling Start(Crawling.Mode mode, int? maxExCount, int startId, int? endId, int runCount, TimeSpan responseTimeOut)
+        {
+           
+
+            const int ID_PRE_LOAD_COUNT = 10000;
+
+            startId -= ID_PRE_LOAD_COUNT * 4;
+
+            var countPack = new CountPack();
+
+            var ids = Channel.CreateBounded<int>(ID_PRE_LOAD_COUNT);
+
+            var datas = Channel.CreateBounded<PixivData>(ID_PRE_LOAD_COUNT);
+
+            var source = new CancellationTokenSource();
+
+            var completeFunc = CreateCencelAction(ids, datas, source);
+
+            Task.Run(() => PreLoadIdTask(ids, InitId(startId), ID_PRE_LOAD_COUNT, CreateGetIdFunc(mode), CreateEndFunc(endId)))
+                .ContinueWith(completeFunc);
+
+            Task.Run(() => SaveTask(datas, ID_PRE_LOAD_COUNT, (n) => countPack.Save = n))
+                .ContinueWith(completeFunc);
+
+            var func = CreateFunc(maxExCount, runCount, responseTimeOut, countPack);
+
+            var allTask = CreateTask(func, source.Token, ids, datas, runCount, countPack).ContinueWith(completeFunc);
 
             var craw = new Crawling();
 
-            craw.Task = Task.WhenAll(ts.ToArray());
-            
-            craw.Task.ContinueWith(completeFunc);
-
-            Log.Write("c2", craw.Task);
+            craw.Task = allTask;
 
             craw.Count = countPack;
 

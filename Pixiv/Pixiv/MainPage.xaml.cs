@@ -817,7 +817,7 @@ namespace Pixiv
 
         }
 
-        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> channelId, ChannelWriter<PixivData> channelsData, CountPack countPack)
+        static async Task LoadHtmlLoopTask(Func<Uri, CancellationToken, Task<string>> func, CancellationToken cancellationToken, ChannelReader<int> channelId, ChannelWriter<PixivData> channelsData, Action<int> onIdAction, Action<int> endIdAction)
         {
             while (true)
             {
@@ -827,22 +827,17 @@ namespace Pixiv
 
                     Uri uri = CreatePixivData.GetNextUri(n);
 
-
-                    countPack.Id = n;
-
-                    countPack.Load++;
-
                     string html;
                     try
                     {
-                        countPack.AddHtmlCount();
+                        onIdAction(n);
 
                         html = await func(uri, cancellationToken).ConfigureAwait(false);
 
                     }
                     finally
                     {
-                        countPack.SubHtmlCount();
+                        endIdAction(n);
                     }
                     
 
@@ -1185,9 +1180,23 @@ namespace Pixiv
 
             var ts = new List<Task>();
 
+            Action<int> onIdAction = (n) =>
+            {
+                countPack.Id = n;
+
+                countPack.Load++;
+
+                countPack.AddHtmlCount();
+            };
+
+            Action<int> endIdAction = (n) =>
+            {
+                countPack.SubHtmlCount();
+            };
+
             foreach (var item in Enumerable.Range(0, runCount))
             {
-                ts.Add(Task.Run(() => LoadHtmlLoopTask(func, source.Token, ids, datas, countPack)));
+                ts.Add(Task.Run(() => LoadHtmlLoopTask(func, source.Token, ids, datas, onIdAction, endIdAction)));
             }
 
             var craw = new Crawling();

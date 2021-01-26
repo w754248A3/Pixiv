@@ -99,6 +99,12 @@
                        WidthRequest="200"
                        Keyboard="Numeric"></Entry>
             </StackLayout>
+            <StackLayout Orientation="Horizontal">
+                <Label Text="显示列数"></Label>
+                <Entry x:Name="m_view_column_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+            </StackLayout>
             <StackLayout>
                 <Button Text="Start" Clicked="OnStart"></Button>
             </StackLayout>
@@ -108,12 +114,6 @@
                         SelectionChanged="OnCollectionViewSelectionChanged"
                         Scrolled="OnScrolled"
                         ItemsUpdatingScrollMode="KeepLastItemInView">
-            <CollectionView.ItemsLayout>
-                <GridItemsLayout Orientation="Vertical" 
-                                 Span="2"
-                                 SnapPointsType="Mandatory"
-                                 SnapPointsAlignment="End"/>
-            </CollectionView.ItemsLayout>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="data:Data">
                     <Image Source="{Binding ImageSource}"></Image>

@@ -1639,6 +1639,13 @@ namespace Pixiv
             set => Preferences.Set(nameof(Tag), value);
         }
 
+        public static int ViewColumn
+        {
+            get => Preferences.Get(nameof(ViewColumn), 2);
+
+            set => Preferences.Set(nameof(ViewColumn), value);
+        }
+
         public static int Offset
         {
             get => Preferences.Get(nameof(Offset), 0);
@@ -1653,9 +1660,9 @@ namespace Pixiv
             set => Preferences.Set(nameof(Count), value);
         }
 
-        static int F(string s)
+        static int F(string s, int minNumber)
         {
-            if (int.TryParse(s, out int n) && n >= 0)
+            if (int.TryParse(s, out int n) && n >= minNumber)
             {
                 return n;
             }
@@ -1717,7 +1724,7 @@ namespace Pixiv
             }
         }
 
-        public static bool Create(string maxExCount, string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
+        public static bool Create(string viewColumn, string maxExCount, string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
         {
             try
             {
@@ -1729,17 +1736,19 @@ namespace Pixiv
 
                 CrawlingMaxExCount = maxExCount ?? "";
 
-                TaskCount = F(taskCount);
+                TaskCount = F(taskCount, 1);
 
-                CrawlingStartId = F(id);
+                CrawlingStartId = F(id, 0);
 
                 MinMark = min ?? "";
 
                 MaxMark = max ?? "";
 
-                Offset = F(offset);
+                ViewColumn = F(viewColumn, 1);
 
-                Count = F(count);
+                Offset = F(offset, 0);
+
+                Count = F(count, 1);
 
 
                 NotTag = nottag ?? "";
@@ -1977,12 +1986,15 @@ namespace Pixiv
             m_max_value.Text = InputData.MaxMark.ToString();
             
             m_offset_value.Text = InputData.Offset.ToString();
+
+            m_view_column_value.Text = InputData.ViewColumn.ToString();
            
         }
 
         bool CreateInput()
         {
             return InputData.Create(
+                m_view_column_value.Text,
                 m_max_ex_count_value.Text,
                 m_endId_value.Text,
                 m_task_count_value.Text,
@@ -2040,6 +2052,17 @@ namespace Pixiv
             m_collView.ItemsSource = m_imageSources;
         }
 
+        void SetCollViewColumn(int viewColumn)
+        {
+            var v = new GridItemsLayout(viewColumn, ItemsLayoutOrientation.Vertical);
+
+            v.SnapPointsType = SnapPointsType.Mandatory;
+
+            v.SnapPointsAlignment = SnapPointsAlignment.End;
+
+            m_collView.ItemsLayout = v;
+        }
+
         void OnStart(object sender, EventArgs e)
         {
             
@@ -2049,6 +2072,8 @@ namespace Pixiv
             }
             else
             {
+                SetCollViewColumn(InputData.ViewColumn);
+
                 m_cons.IsVisible = false;
 
                 m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));

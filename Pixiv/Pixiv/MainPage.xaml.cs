@@ -361,6 +361,30 @@ namespace Pixiv
             return (socket, uri) => Task.Run(() => socket.Connect(host, port));
         }
 
+        public static void AddReTryFunc<T>(TaskReTryBuild<T> build)
+        {
+            build.Add((task) =>
+            {
+                if (task.Exception.IsNotNull() &&
+                    task.Exception.InnerException is MHttpClientException e)
+                {
+                    if (e.InnerException is OperationCanceledException ||
+                        e.InnerException is SocketException ||
+                        e.InnerException is IOException ||
+                        e.InnerException is ObjectDisposedException)
+                    {
+                        return TaskReTryFlag.Retry;
+                    }
+
+                    return TaskReTryFlag.None;
+                }
+                else
+                {
+                    return TaskReTryFlag.None;
+                }
+            });
+        }
+
         static Func<Stream, Uri, Task<Stream>> CreateCreateAuthenticateAsyncFunc(string host)
         {
             return async (stream, uri) =>
@@ -373,54 +397,7 @@ namespace Pixiv
                 return sslStream;
             };
 
-            
-        }
 
-
-
-        static Func<Uri,Uri, CancellationToken, Task<byte[]>> CatchOperationCanceledExceptionAsync(Func<Uri, Uri, Task<byte[]>> func)
-        {
-            return async (uri, referer, tokan) =>
-            {
-                while (true)
-                {
-                    try
-                    {
-                        return await func(uri, referer).ConfigureAwait(false);
-                    }
-                    catch (MHttpClientException e)
-                    {
-                        if(e.InnerException is OperationCanceledException)
-                        {
-                            if (tokan.IsCancellationRequested)
-                            {
-                                throw new OperationCanceledException();
-                            }
-                            
-                        }
-                        else
-                        {
-                            if (e.InnerException is SocketException ||
-                                e.InnerException is ObjectDisposedException ||
-                                e.InnerException is IOException)
-                            {
-
-                            }
-                            else
-                            {
-                                throw;
-                            }
-                        }
-
-                        
-                    }
-
-                    await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                }
-            };
-
-
-            
         }
 
         public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
@@ -451,7 +428,7 @@ namespace Pixiv
 
         }
 
-        public static Func<Uri, Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, TimeSpan responseTimeOut)
+        public static Func<Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, TimeSpan responseTimeOut)
         {
             const string IMG_HOST = "s.pximg.net";
 
@@ -472,9 +449,12 @@ namespace Pixiv
 
             client.ResponseTimeOut = responseTimeOut;
 
-            Func<Uri, Uri, Task<byte[]>> func = (uri, referer) => client.GetByteArrayAsync(uri, referer, CancellationToken.None);
 
-            return CatchOperationCanceledExceptionAsync(func);
+            Uri referer = new Uri("https://www.pixiv.net/");
+
+
+            return (uri, tokan) => client.GetByteArrayAsync(uri, referer, CancellationToken.None);
+
         }
     }
 
@@ -1014,29 +994,7 @@ namespace Pixiv
         }
 
 
-        static Func<Task<string>, TaskReTryFlag> CreateReTryFunc()
-        {
-            return (task) =>
-            {
-                if (task.Exception.IsNotNull() &&
-                    task.Exception.InnerException is MHttpClientException e)
-                {
-                    if (e.InnerException is OperationCanceledException ||
-                        e.InnerException is SocketException ||
-                        e.InnerException is IOException ||
-                        e.InnerException is ObjectDisposedException)
-                    {
-                        return TaskReTryFlag.Retry;
-                    }
-
-                    return TaskReTryFlag.None;
-                }
-                else
-                {
-                    return TaskReTryFlag.None;
-                }
-            };
-        }
+        
 
         static Func<Task<string>, TaskReTryFlag> CreateCountFunc(CountPack countPack)
         {
@@ -1081,7 +1039,7 @@ namespace Pixiv
             
             var build = TaskReTryBuild<string>.Create();
 
-            build.Add(CreateReTryFunc());
+            CreatePixivMHttpClient.AddReTryFunc(build);
 
             AddMaxExCountFunc(build, maxExCount);
 
@@ -1237,7 +1195,7 @@ namespace Pixiv
 
         readonly LoadBigImgCount m_count = new LoadBigImgCount();
 
-        readonly Func<Uri, Uri, CancellationToken, Task<byte[]>> m_client;
+        readonly Func<Uri, CancellationToken, Task<byte[]>> m_client;
 
         readonly string m_basePath;
 
@@ -1251,7 +1209,15 @@ namespace Pixiv
             m_basePath = basePath;
 
 
-            m_client = CreatePixivMHttpClient.Create(6, bigImgResponseSize, responseTimeOut);
+            var build = TaskReTryBuild<byte[]>.Create();
+
+            CreatePixivMHttpClient.AddReTryFunc(build);
+
+            var buildFunc = build.CreateRetryFunc();
+
+            var func = CreatePixivMHttpClient.Create(6, bigImgResponseSize, responseTimeOut);
+
+            m_client = (uri, tokan) => buildFunc((tokan) => func(uri, tokan), tokan);
         }
 
         async Task SaveImage(byte[] buffer)
@@ -1269,11 +1235,7 @@ namespace Pixiv
         {
             Uri uri = CreatePixivData.GetOriginalUri(path);
 
-
-            Uri referer = new Uri("https://www.pixiv.net/");
-
-
-            byte[] buffer = await m_client(uri, referer, CancellationToken.None).ConfigureAwait(false);
+            byte[] buffer = await m_client(uri, CancellationToken.None).ConfigureAwait(false);
 
             await SaveImage(buffer).ConfigureAwait(false);
 
@@ -1301,28 +1263,21 @@ namespace Pixiv
 
     sealed class Preload
     {
-        
-
-        static Task<byte[]> GetImageFromWebAsync(Func<Uri, Uri, CancellationToken, Task<byte[]>> func, PixivData data, CancellationToken cancellationToken)
-        {
-            Uri uri = CreatePixivData.GetSmallUri(data);
-
-
-            Uri referer = new Uri("https://www.pixiv.net/");
-
-
-            return func(uri, referer, cancellationToken);
-        }
-
-        static async Task CreateLoadImg(Func<Uri, Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<Data> destion)
+        static async Task CreateLoadImg(Func<Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<Data> destion)
         {
             while (true)
             {
-                PixivData data;
-
                 try
                 {
-                    data = await source.ReadAsync(cancellationToken).ConfigureAwait(false);
+                    var data = await source.ReadAsync().ConfigureAwait(false);
+
+                    Uri uri = CreatePixivData.GetSmallUri(data);
+
+                    var buffer = await func(uri, cancellationToken).ConfigureAwait(false);
+
+                    var item = new Data(buffer, data.Path, data.ItemId, data.Tags);
+
+                    await destion.WriteAsync(item).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1332,29 +1287,11 @@ namespace Pixiv
                 {
                     return;
                 }
+                catch(MHttpClientException)
+                {
 
-                byte[] buffer;
-                
-                try
-                {
-                    buffer = await GetImageFromWebAsync(func, data, cancellationToken).ConfigureAwait(false);
-                }
-                catch (MHttpClientException)
-                {
-                    continue;
                 }
 
-                var item = new Data(buffer, data.Path, data.ItemId, data.Tags);
-
-                try
-                {
-                    await destion.WriteAsync(item).ConfigureAwait(false);
-                }
-                catch (ChannelClosedException)
-                {
-                    return;
-                }
-                
             }
         }
 
@@ -1385,8 +1322,50 @@ namespace Pixiv
             }
         }
 
+        static Action<Task> CreateCencelAction(ChannelWriter<PixivData> pixivDatas, ChannelWriter<Data> datas, CancellationTokenSource source)
+        {
+            return (t) =>
+            {
 
-        public static Preload Create(Func<Task<List<PixivData>>> func, int dataLoadCount, int imgLoadCount, int responseSize, TimeSpan responseTimeOut)
+                pixivDatas.TryComplete();
+
+                datas.TryComplete();
+
+                source.Cancel();
+            };
+        }
+
+        static Func<Uri, CancellationToken, Task<byte[]>> CreateFunc(int imgLoadCount, int responseSize, TimeSpan responseTimeOut)
+        {
+
+
+            var func = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, responseTimeOut);
+
+            var build = TaskReTryBuild<byte[]>.Create();
+
+            CreatePixivMHttpClient.AddReTryFunc(build);
+
+            var buildFunc = build.CreateRetryFunc();
+
+            return (uri, tokan) => buildFunc((tokan) => func(uri, tokan), tokan);
+        }
+
+        static Task AddAllTask(int imgLoadCount, Func<Task> func)
+        {
+
+            var list = new List<Task>();
+
+            foreach (var item in Enumerable.Range(0, imgLoadCount))
+            {
+                list.Add(Task.Run(() => func()));
+            }
+
+
+            return Task.WhenAll(list.ToArray());
+
+        }
+
+        public static Preload Create(Func<Task<List<PixivData>>> dataFunc, int dataLoadCount, int imgLoadCount, int responseSize, TimeSpan responseTimeOut)
         {
 
             var datas = Channel.CreateBounded<PixivData>(dataLoadCount);
@@ -1395,40 +1374,15 @@ namespace Pixiv
 
             var source = new CancellationTokenSource();
 
-            Action<Task> cencelAction = (t) =>
-            {
+            var cencelAction = CreateCencelAction(datas, imgs, source);
 
-                datas.Writer.TryComplete();
+            Task.Run(() => CreateLoadData(datas, dataFunc))
+                .ContinueWith(cencelAction);
 
-                imgs.Writer.TryComplete();
+            var func = CreateFunc(imgLoadCount, responseSize, responseTimeOut);
 
-                source.Cancel();
-            };
-
-            var client = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, responseTimeOut);
-
-
-            var t1 = Task.Run(() => CreateLoadData(datas, func));
-           
-            t1.ContinueWith(cencelAction);
-
-            Log.Write("preload", t1);
-
-            var list = new List<Task>();
-
-            foreach (var item in Enumerable.Range(0, imgLoadCount)) 
-            {
-                Task t = Task.Run(() => CreateLoadImg(client, source.Token, datas, imgs));
-
-                list.Add(t);
-            }
-
-
-            var t2 = Task.WhenAll(list.ToArray());
-          
-            t2.ContinueWith(cencelAction);
-
-            Log.Write("preload", t2);
+            AddAllTask(imgLoadCount, () => CreateLoadImg(func, source.Token, datas, imgs))
+                .ContinueWith(cencelAction);
 
             var preLoad = new Preload();
 

@@ -862,7 +862,14 @@ namespace Pixiv
                 }
                 catch (MHttpClientException e)
                 {
-                    Log.Write("client", e);
+                    if (e.InnerException is MHttpResponseException)
+                    {
+
+                    }
+                    else
+                    {
+                        Log.Write("client", e);
+                    }
                 }
             }
         }
@@ -1070,7 +1077,8 @@ namespace Pixiv
         {
             return (task) =>
             {
-                if (task.Exception.InnerException is MHttpClientException e)
+                if (task.Exception.IsNotNull() &&
+                    task.Exception.InnerException is MHttpClientException e)
                 {
                     if (e.InnerException is OperationCanceledException)
                     {

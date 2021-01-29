@@ -356,11 +356,6 @@ namespace Pixiv
             }
         }
 
-        static Func<Socket, Uri, Task> CreateCreateConnectAsyncFunc(string host, int port)
-        {
-            return (socket, uri) => Task.Run(() => socket.Connect(host, port));
-        }
-
         public static void AddReTryFunc<T>(TaskReTryBuild<T> build)
         {
             build.Add((task) =>
@@ -385,21 +380,6 @@ namespace Pixiv
             });
         }
 
-        static Func<Stream, Uri, Task<Stream>> CreateCreateAuthenticateAsyncFunc(string host)
-        {
-            return async (stream, uri) =>
-            {
-                SslStream sslStream = new SslStream(stream, false);
-
-                await sslStream.AuthenticateAsClientAsync(host).ConfigureAwait(false);
-
-
-                return sslStream;
-            };
-
-
-        }
-
         public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
         {
 
@@ -409,9 +389,9 @@ namespace Pixiv
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = CreateCreateConnectAsyncFunc(HOST, 443),
+                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(HOST, 443),
 
-                AuthenticateCallback = CreateCreateAuthenticateAsyncFunc(HOST),
+                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(HOST),
 
                 MaxStreamPoolCount = maxStreamPoolCount
 
@@ -434,9 +414,9 @@ namespace Pixiv
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = CreateCreateConnectAsyncFunc(IMG_HOST, 443),
+                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(IMG_HOST, 443),
 
-                AuthenticateCallback = CreateCreateAuthenticateAsyncFunc(IMG_HOST),
+                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(IMG_HOST),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 

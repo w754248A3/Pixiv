@@ -177,34 +177,56 @@ namespace Pixiv
 
     sealed class TaskReTryBuild<T>
     {
-       
 
-        public Func<Func<CancellationToken, Task<T>>, CancellationToken, Task<T>> CreateRetryFunc()
+
+        public Func<Func<CancellationToken, Task<T>>, CancellationToken, Task<T>> CreateRetryFunc(int maxTimeOutReTryCount, TimeSpan timeSpan)
         {
             Func<Task<T>, TaskReTryFlag> isRetryFunc = CreateIsRetryFunc();
 
             return async (func, tokan) =>
             {
+                TimeSpan timeOut = default;
 
-
-                while (true)
+                foreach (var item in Enumerable.Range(0, maxTimeOutReTryCount))
                 {
-                    if (tokan.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    else
-                    {
-                        var task = await func(tokan).ContinueWith((t) => t).ConfigureAwait(false);
+                    timeOut += timeSpan;
 
-                        var v = isRetryFunc(task);
-                        if (v == TaskReTryFlag.None)
+                    try
+                    {
+                        while (true)
                         {
-                            return await task.ConfigureAwait(false);
+                            if (tokan.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException();
+                            }
+
+                            using (var cancelSource = new CancellationTokenSource(timeOut))
+                            using (tokan.Register(cancelSource.Cancel))
+                            {
+                                var task = await func(cancelSource.Token).ContinueWith((t) => t).ConfigureAwait(false);
+
+                                var v = isRetryFunc(task);
+                                if (v == TaskReTryFlag.None)
+                                {
+                                    return await task.ConfigureAwait(false);
+                                }
+                                //假如重试,则会吞噬异常,必须保证回调,能处理异常
+                            }
+
+
+
+                            await Task.Delay(new TimeSpan(0, 0, 6), tokan).ConfigureAwait(false);
                         }
-                        //假如重试,则会吞噬异常,必须保证回调,能处理异常
+                    }
+                    catch (MHttpClientException e)
+                    when (e.InnerException is OperationCanceledException)
+                    {
+
                     }
                 }
+
+
+                throw new MHttpClientException(new OperationCanceledException());
             };
         }
 
@@ -363,8 +385,7 @@ namespace Pixiv
                 if (task.Exception.IsNotNull() &&
                     task.Exception.InnerException is MHttpClientException e)
                 {
-                    if (e.InnerException is OperationCanceledException ||
-                        e.InnerException is SocketException ||
+                    if (e.InnerException is SocketException ||
                         e.InnerException is IOException ||
                         e.InnerException is ObjectDisposedException)
                     {
@@ -380,7 +401,7 @@ namespace Pixiv
             });
         }
 
-        public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount, TimeSpan responseTimeOut)
+        public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount)
         {
 
 
@@ -398,17 +419,13 @@ namespace Pixiv
 
             });
 
-            client.ConnectTimeOut = new TimeSpan(0, 0, 6);
-
-            client.ResponseTimeOut = responseTimeOut;
-
-            return (uri, cancellationToken) => client.GetStringAsync(uri, CancellationToken.None);
+            return (uri, cancellationToken) => client.GetStringAsync(uri, cancellationToken);
 
 
 
         }
 
-        public static Func<Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize, TimeSpan responseTimeOut)
+        public static Func<Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize)
         {
             const string IMG_HOST = "s.pximg.net";
 
@@ -424,16 +441,10 @@ namespace Pixiv
 
             });
 
-            client.ConnectTimeOut = new TimeSpan(0, 0, 6);
-
-
-            client.ResponseTimeOut = responseTimeOut;
-
-
             Uri referer = new Uri("https://www.pixiv.net/");
 
 
-            return (uri, tokan) => client.GetByteArrayAsync(uri, referer, CancellationToken.None);
+            return (uri, tokan) => client.GetByteArrayAsync(uri, referer, tokan);
 
         }
     }
@@ -1025,9 +1036,9 @@ namespace Pixiv
 
             build.Add(CreateCountFunc(countPack));
 
-            var buildFunc = build.CreateRetryFunc();
+            var buildFunc = build.CreateRetryFunc(3, responseTimeOut);
 
-            var func = CreatePixivMHttpClient.CreateProxy(runCount, responseTimeOut);
+            var func = CreatePixivMHttpClient.CreateProxy(runCount);
 
 
             return (uri, tokan) =>
@@ -1193,9 +1204,9 @@ namespace Pixiv
 
             CreatePixivMHttpClient.AddReTryFunc(build);
 
-            var buildFunc = build.CreateRetryFunc();
+            var buildFunc = build.CreateRetryFunc(6, responseTimeOut);
 
-            var func = CreatePixivMHttpClient.Create(6, bigImgResponseSize, responseTimeOut);
+            var func = CreatePixivMHttpClient.Create(6, bigImgResponseSize);
 
             m_client = (uri, tokan) => buildFunc((tokan) => func(uri, tokan), tokan);
         }
@@ -1319,13 +1330,13 @@ namespace Pixiv
         {
 
 
-            var func = CreatePixivMHttpClient.Create(imgLoadCount, responseSize, responseTimeOut);
+            var func = CreatePixivMHttpClient.Create(imgLoadCount, responseSize);
 
             var build = TaskReTryBuild<byte[]>.Create();
 
             CreatePixivMHttpClient.AddReTryFunc(build);
 
-            var buildFunc = build.CreateRetryFunc();
+            var buildFunc = build.CreateRetryFunc(3, responseTimeOut);
 
             return (uri, tokan) => buildFunc((tokan) => func(uri, tokan), tokan);
         }

@@ -37,6 +37,8 @@
                     Clicked="OnSetLastId"></Button>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
+            <Button Text="设置WebInfo"
+                    Clicked="OnSetWebInfo"></Button>
             <Button Text="隐藏"
                     Clicked="OnVisibleStartConsole"></Button>
         </StackLayout>

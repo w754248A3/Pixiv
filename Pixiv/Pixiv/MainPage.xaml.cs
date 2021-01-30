@@ -281,14 +281,10 @@ namespace Pixiv
 
         public string HtmlSni { get; set; }
 
-        public string HtmlHost { get; set; }
-
         public string ImgDns { get; set; }
 
 
         public string ImgSni { get; set; }
-
-        public string ImgHost { get; set; }
 
     }
 
@@ -302,13 +298,9 @@ namespace Pixiv
 
                 HtmlSni = "www.pixivision.net",
 
-                HtmlHost = "www.pixiv.net",
-
                 ImgDns = "s.pximg.net",
 
                 ImgSni = "s.pximg.net",
-
-                ImgHost = "i.pximg.net"
 
             });
         }
@@ -319,15 +311,54 @@ namespace Pixiv
         }
 
 
-        public static bool Create(string s, out WebInfo info, out string errorMessage)
+        static bool Is(string s)
         {
             try
             {
-                info = JsonSerializer.Deserialize<WebInfo>(s);
-
-                errorMessage = "OK";
-
+                Uri uri = new Uri("https://" + s.Trim());
                 return true;
+            }
+            catch (UriFormatException)
+            {
+                return false;
+            }
+
+           
+        }
+
+        static bool Is(WebInfo info)
+        {
+            return Is(info.HtmlDns) &&
+                    Is(info.HtmlSni) &&
+                    Is(info.ImgDns) &&
+                    Is(info.ImgSni);
+        }
+
+        public static WebInfo Create(string s)
+        {
+            return JsonSerializer.Deserialize<WebInfo>(s);
+        }
+
+        public static bool TryCreate(string s, out WebInfo info, out string errorMessage)
+        {
+            try
+            {
+                info = Create(s);
+
+                if (Is(info))
+                {
+
+                    errorMessage = "OK";
+
+                    return true;
+                }
+                else
+                {
+                    errorMessage = "host格式错误";
+
+                    return false;
+                }
+
             }
             catch (JsonException)
             {
@@ -478,15 +509,21 @@ namespace Pixiv
         public static Func<Uri, CancellationToken, Task<string>> CreateProxy(int maxStreamPoolCount)
         {
 
+            var webInfo = WebInfoHelper.Create(InputData.WebInfo);
 
-            const string HOST = "www.pixivision.net";
+
+            string dns_host = webInfo.HtmlDns;
+
+            string sni_host = webInfo.HtmlSni;
+
+
 
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(HOST, 443),
+                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
 
-                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(HOST),
+                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host),
 
                 MaxStreamPoolCount = maxStreamPoolCount
 
@@ -501,13 +538,20 @@ namespace Pixiv
 
         public static Func<Uri, CancellationToken, Task<byte[]>> Create(int maxStreamPoolCount, int maxResponseSize)
         {
-            const string IMG_HOST = "s.pximg.net";
+            var webInfo = WebInfoHelper.Create(InputData.WebInfo);
+
+
+            string dns_host = webInfo.ImgDns;
+
+            string sni_host = webInfo.ImgSni;
+
+
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(IMG_HOST, 443),
+                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
 
-                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(IMG_HOST),
+                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 
@@ -956,7 +1000,7 @@ namespace Pixiv
 
             }
 
-            await DataBase.AddAll(list).ConfigureAwait(false);
+            await addAll().ConfigureAwait(false);
         }
 
         static Func<Task<string>, TaskReTryFlag> CreateMaxExCountFunc(int maxExCount)
@@ -1546,6 +1590,13 @@ namespace Pixiv
 
     static class InputData
     {
+        public static string WebInfo
+        {
+            get => Preferences.Get(nameof(WebInfo), WebInfoHelper.GetDefWebInfo());
+
+            set => Preferences.Set(nameof(WebInfo), value);
+        }
+
         public static string CrawlingMaxExCount
         {
             get => Preferences.Get(nameof(CrawlingMaxExCount), "1000");
@@ -2272,6 +2323,11 @@ namespace Pixiv
             });
 
             Log.Write("setlastid", tt);
+        }
+
+        void OnSetWebInfo(object sender, EventArgs e)
+        {
+            Navigation.PushModalAsync(new InputWebInfoPage());
         }
     }
 }

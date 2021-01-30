@@ -598,13 +598,157 @@ namespace Pixiv
         public string Tags { get; set; }
     }
 
+    public sealed class ImgDataCount
+    {
+        public ImgDataCount()
+        {
+
+        }
+
+        public ImgDataCount(int itemId, int count)
+        {
+            ItemId = itemId;
+            Count = count;
+        }
+
+        [PrimaryKey]
+        public int ItemId { get; set; }
+
+        public int Count { get; set; }
+    }
+
+    public sealed class ImgData
+    {
+        public ImgData()
+        {
+
+        }
+
+        public ImgData(int itemId, byte[] img)
+        {
+            ItemId = itemId;
+            Img = img;
+           
+        }
+
+        [PrimaryKey]
+        public int ItemId { get; set; }
+
+        public byte[] Img { get; set; }
+    }
+
+    sealed class ImgDataBase
+    {
+        public static ImgDataBase Big { get; set; }
+
+        public static ImgDataBase Small { get; set; }
+
+        public static void Init(string path)
+        {
+            Big = Create(path, "Big");
+
+            Small = Create(path, "Small");
+        }
+
+
+        readonly SQLiteConnection m_connection;
+
+
+        readonly SemaphoreSlim m_slim = new SemaphoreSlim(1, 1);
+
+        private ImgDataBase(SQLiteConnection connection)
+        {
+            m_connection = connection;
+        }
+
+        public static ImgDataBase Create(string path, string name)
+        {
+            Directory.CreateDirectory(path);
+
+            name += ".db3";
+
+            path = Path.Combine(path, name);
+
+            var connection = new SQLiteConnection(path, DataBase.Flags);
+
+            connection.CreateTable<ImgData>();
+            connection.CreateTable<ImgDataCount>();
+
+            return new ImgDataBase(connection);
+        }
+
+        async Task<T> Lock<T>(Func<T> func)
+        {
+            try
+            {
+                await m_slim.WaitAsync().ConfigureAwait(false);
+
+                return func();
+            }
+            finally
+            {
+                m_slim.Release();
+            }
+        }
+
+        public Task Add(ImgData data)
+        {
+
+            return Lock<object>(() =>
+            {
+                m_connection.InsertOrReplace(new ImgDataCount(data.ItemId, 1));
+
+
+                m_connection.InsertOrReplace(data);
+
+                return default;
+            });
+
+
+            
+        }
+
+        public Task<ImgData> Get(int itemId)
+        {
+            return Lock(() =>
+            {
+                var data = m_connection.Find<ImgData>(itemId);
+
+                if (data is null)
+                {
+                    return null;
+                }
+                else
+                {
+                    var count = m_connection.Find<ImgDataCount>(itemId);
+
+                    if (count is null)
+                    {
+
+                    }
+                    else
+                    {
+                        count.Count++;
+
+                        m_connection.Update(count);
+                    }
+
+                    return data;
+
+                }
+            });
+
+            
+        }
+    }
+
     static class DataBase
     {
         const int START_VALUE = 60000000;
 
         const string DatabaseFilename = "PixivBaseData.db3";
 
-        const SQLite.SQLiteOpenFlags Flags =
+        public const SQLite.SQLiteOpenFlags Flags =
 
             SQLite.SQLiteOpenFlags.ReadWrite |
 
@@ -1372,6 +1516,26 @@ namespace Pixiv
 
     sealed class Preload
     {
+        static async Task<byte[]> GetAsync(int itemId, Func<Task<byte[]>> func)
+        {
+            var bufferData = await ImgDataBase.Small.Get(itemId).ConfigureAwait(false);
+
+            if (bufferData is null ||
+                bufferData.Img is null)
+            {
+                
+                var buffer = await func().ConfigureAwait(false);
+
+                await ImgDataBase.Small.Add(new ImgData(itemId, buffer)).ConfigureAwait(false);
+
+                return buffer;
+            }
+            else
+            {
+                return bufferData.Img;
+            }
+        }
+
         static async Task CreateLoadImg(Func<Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<Data> destion)
         {
             while (true)
@@ -1380,9 +1544,12 @@ namespace Pixiv
                 {
                     var data = await source.ReadAsync().ConfigureAwait(false);
 
-                    Uri uri = CreatePixivData.GetSmallUri(data);
+                    byte[] buffer = await GetAsync(data.ItemId, () =>
+                    {
+                        Uri uri = CreatePixivData.GetSmallUri(data);
 
-                    var buffer = await func(uri, cancellationToken).ConfigureAwait(false);
+                        return func(uri, cancellationToken);
+                    }).ConfigureAwait(false);
 
                     var item = new Data(buffer, data.Path, data.ItemId, data.Tags);
 
@@ -1470,7 +1637,11 @@ namespace Pixiv
             }
 
 
-            return Task.WhenAll(list.ToArray());
+            var t = Task.WhenAll(list.ToArray());
+
+            Log.Write("reload", t);
+
+            return t;
 
         }
 
@@ -1967,6 +2138,7 @@ namespace Pixiv
                 return;
             }
 
+            
             DeviceDisplay.KeepScreenOn = true;
 
 
@@ -1977,6 +2149,8 @@ namespace Pixiv
 
 
             DataBase.Init(BASE_PATH);
+            
+            ImgDataBase.Init(BASE_PATH);
 
             InitInputView();
 

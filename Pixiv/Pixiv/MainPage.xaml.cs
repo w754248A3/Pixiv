@@ -10,6 +10,7 @@ using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Channels;
@@ -269,6 +270,79 @@ namespace Pixiv
 
                 return TaskReTryFlag.None;
             };
+        }
+    }
+
+    public sealed class WebInfo
+    {
+
+        public string HtmlDns { get; set; }
+
+
+        public string HtmlSni { get; set; }
+
+        public string HtmlHost { get; set; }
+
+        public string ImgDns { get; set; }
+
+
+        public string ImgSni { get; set; }
+
+        public string ImgHost { get; set; }
+
+    }
+
+    public static class WebInfoHelper
+    {
+        public static string GetDefWebInfo()
+        {
+            return Ser(new WebInfo
+            {
+                HtmlDns = "www.pixivision.net",
+
+                HtmlSni = "www.pixivision.net",
+
+                HtmlHost = "www.pixiv.net",
+
+                ImgDns = "s.pximg.net",
+
+                ImgSni = "s.pximg.net",
+
+                ImgHost = "i.pximg.net"
+
+            });
+        }
+
+        public static string Ser(WebInfo info)
+        {
+            return JsonSerializer.Serialize(info, new JsonSerializerOptions { WriteIndented = true });
+        }
+
+
+        public static bool Create(string s, out WebInfo info, out string errorMessage)
+        {
+            try
+            {
+                info = JsonSerializer.Deserialize<WebInfo>(s);
+
+                errorMessage = "OK";
+
+                return true;
+            }
+            catch (JsonException)
+            {
+                errorMessage = "json 错误";
+            }
+            catch (NotSupportedException)
+            {
+                errorMessage = "类型错误";
+            }
+
+            info = default;
+           
+            return false;
+
+            
         }
     }
 

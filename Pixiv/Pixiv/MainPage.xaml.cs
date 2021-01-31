@@ -598,25 +598,6 @@ namespace Pixiv
         public string Tags { get; set; }
     }
 
-    public sealed class ImgDataCount
-    {
-        public ImgDataCount()
-        {
-
-        }
-
-        public ImgDataCount(int itemId, int count)
-        {
-            ItemId = itemId;
-            Count = count;
-        }
-
-        [PrimaryKey]
-        public int ItemId { get; set; }
-
-        public int Count { get; set; }
-    }
-
     public sealed class ImgData
     {
         public ImgData()
@@ -635,6 +616,9 @@ namespace Pixiv
         public int ItemId { get; set; }
 
         public byte[] Img { get; set; }
+
+
+        public int Count { get; set; }
     }
 
     sealed class ImgDataBase
@@ -672,9 +656,29 @@ namespace Pixiv
             var connection = new SQLiteConnection(path, DataBase.Flags);
 
             connection.CreateTable<ImgData>();
-            connection.CreateTable<ImgDataCount>();
-
+            
             return new ImgDataBase(connection);
+        }
+
+        void UpCount(ImgData data)
+        {
+            m_connection.Execute($"UPDATE {nameof(ImgData)} SET {nameof(ImgData.Count)} = {data.Count + 1} WHERE {nameof(ImgData.ItemId)} == {data.ItemId}");
+        }
+
+        ImgData Find(int key)
+        {
+            var data = m_connection.Find<ImgData>(key);
+
+            if(data is null)
+            {
+                return null;
+            }
+            else
+            {
+                UpCount(data);
+
+                return data;
+            }
         }
 
         async Task<T> Lock<T>(Func<T> func)
@@ -696,9 +700,6 @@ namespace Pixiv
 
             return Lock<object>(() =>
             {
-                m_connection.InsertOrReplace(new ImgDataCount(data.ItemId, 1));
-
-
                 m_connection.InsertOrReplace(data);
 
                 return default;
@@ -712,33 +713,8 @@ namespace Pixiv
         {
             return Lock(() =>
             {
-                var data = m_connection.Find<ImgData>(itemId);
-
-                if (data is null)
-                {
-                    return null;
-                }
-                else
-                {
-                    var count = m_connection.Find<ImgDataCount>(itemId);
-
-                    if (count is null)
-                    {
-
-                    }
-                    else
-                    {
-                        count.Count++;
-
-                        m_connection.Update(count);
-                    }
-
-                    return data;
-
-                }
-            });
-
-            
+                return Find(itemId);
+            });   
         }
     }
 
@@ -2493,7 +2469,11 @@ namespace Pixiv
             {
                 int n = t.Result;
 
-                MainThread.BeginInvokeOnMainThread(() => m_startId_value.Text = n.ToString());
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    m_startId_value.Text = n.ToString();
+                    m_min_id_value.Text = n.ToString();
+                });
             });
 
             Log.Write("setlastid", tt);

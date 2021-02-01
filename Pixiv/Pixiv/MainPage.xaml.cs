@@ -681,7 +681,8 @@ namespace Pixiv
             }
         }
 
-        async Task<T> Lock<T>(Func<T> func)
+
+        async ValueTask<T> Lock<T>(Func<T> func)
         {
             try
             {
@@ -695,21 +696,20 @@ namespace Pixiv
             }
         }
 
-        public Task Add(ImgData data)
+        public ValueTask<int> Add(ImgData data)
         {
 
-            return Lock<object>(() =>
+            return Lock(() =>
             {
-                m_connection.InsertOrReplace(data);
+                return m_connection.InsertOrReplace(data);
 
-                return default;
             });
 
 
             
         }
 
-        public Task<ImgData> Get(int itemId)
+        public ValueTask<ImgData> Get(int itemId)
         {
             return Lock(() =>
             {
@@ -1496,7 +1496,7 @@ namespace Pixiv
 
     sealed class Preload
     {
-        static async Task<byte[]> GetAsync(int itemId, Func<Task<byte[]>> func)
+        static async ValueTask<byte[]> GetAsync(int itemId, Func<Task<byte[]>> func)
         {
             var bufferData = await ImgDataBase.Small.Get(itemId).ConfigureAwait(false);
 
@@ -1660,11 +1660,6 @@ namespace Pixiv
         Func<Task<Data>> Read { get; set; }
 
 
-        public Task<Data> ReadAsync()
-        {
-            return Read();
-        }
-
 
         public void Complete()
         {
@@ -1673,9 +1668,59 @@ namespace Pixiv
 
         }
 
+        public Task While(Func<Data, Task<TimeSpan>> func)
+        {
+            return Task.Run(async () =>
+            {
+                try
+                {
+                    while (true)
+                    {
+                        if (m_slim.Wait(TimeSpan.Zero))
+                        {
+                            var data = await Read().ConfigureAwait(false);
+
+                            var timeSpan = await func(data).ConfigureAwait(false);
+
+                            await Task.Delay(timeSpan).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+
+                }
+                catch (ChannelClosedException)
+                {
+
+                }
+
+                
+
+
+            });
+        }
+
+
+        ManualResetEventSlim m_slim = new ManualResetEventSlim();
+
+        public void SetWait()
+        {
+            m_slim.Reset();
+        }
+
+        public void SetNotWait()
+        {
+            m_slim.Set();
+        }
+
         private Preload()
         {
-
+            SetNotWait();
         }
     }
 
@@ -1987,54 +2032,6 @@ namespace Pixiv
         }
     }
 
-
-    sealed class Awa
-    {
-
-        TaskCompletionSource<object> m_source;
-
-        public void SetAwait()
-        {
-            if (m_source is null)
-            {
-                m_source = new TaskCompletionSource<object>();
-            }
-            else
-            {
-
-            }
-        }
-
-        public void SetAdd()
-        {
-            if (m_source is null)
-            {
-
-            }
-            else
-            {
-                var v = m_source;
-
-                m_source = null;
-
-                v.TrySetResult(default);
-            }
-        }
-
-
-        public Task Get()
-        {
-            if (m_source is null)
-            {
-                return Task.CompletedTask;
-            }
-            else
-            {
-                return m_source.Task;
-            }
-        }
-    }
-
     public partial class MainPage : ContentPage
     {
         const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
@@ -2086,8 +2083,6 @@ namespace Pixiv
         readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
 
         readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, BIG_IMG_TIMEOUT));
-
-        readonly Awa m_awa = new Awa();
 
         Crawling m_crawling;
 
@@ -2268,58 +2263,44 @@ namespace Pixiv
 
                 m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
 
-                m_reloadTask = Start(m_reload);
+                m_reloadTask = m_reload.While((data) => MainThread.InvokeOnMainThreadAsync(() => SetImage(data)));
 
                 Log.Write("reload", m_reloadTask);
             }
         }
 
-        async Task SetImage(Data date)
+        TimeSpan SetImage(Data date)
         {
 
-            if (m_imageSources.Count >= IMG_VIEW_COUNT)
+            if (m_imageSources.Count == IMG_VIEW_COUNT)
             {
-                await Task.Delay(new TimeSpan(0, 0, IMG_FLUSH_TIMESPAN));
+                m_imageSources.Add(date);
 
+                return new TimeSpan(0, 0, IMG_FLUSH_TIMESPAN);
+
+                
+            }
+            else if (m_imageSources.Count > IMG_VIEW_COUNT)
+            {
                 m_imageSources.Clear();
 
-                await Task.Yield();
+                m_imageSources.Add(date);
+
+                return new TimeSpan(0, 0, IMG_TIMESPAN);
+
+            }
+            else
+            {
+                m_imageSources.Add(date);
+
+                return new TimeSpan(0, 0, IMG_TIMESPAN);
+
             }
 
-            m_imageSources.Add(date);
 
-            await Task.Yield();
         }
 
         
-
-        async Task Start(Preload reload)
-        {
-
-            try
-            {
-                while (true)
-                {
-                    await m_awa.Get();
-
-                    var data = await reload.ReadAsync();
-
-                    await SetImage(data);
-
-                    await Task.Delay(new TimeSpan(0, 0, IMG_TIMESPAN));
-                }
-            }
-            catch (OperationCanceledException)
-            {
-
-            }
-            catch (ChannelClosedException)
-            {
-                
-            }
-           
-             
-        }
 
         protected override bool OnBackButtonPressed()
         {
@@ -2386,11 +2367,13 @@ namespace Pixiv
             {
                 if (n < 0)
                 {
-                    m_awa.SetAwait();
+                    m_reload?.SetWait();
+                    
                 }
                 else if (n > 0 && e.LastVisibleItemIndex + 1 == m_imageSources.Count)
                 {
-                    m_awa.SetAdd();
+                    m_reload?.SetNotWait();
+                    
                 }
             }
         }

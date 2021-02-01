@@ -749,6 +749,10 @@ namespace Pixiv
 
             conn.CreateTable<PixivData>();
 
+            //conn.CreateIndex<PixivData>((data) => data.Mark);
+        
+            //conn.CreateIndex<PixivData>((data) => data.Tags);
+
             return conn;
         }
 

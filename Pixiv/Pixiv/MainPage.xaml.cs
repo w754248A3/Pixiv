@@ -2139,6 +2139,10 @@ namespace Pixiv
            
 
             InitCollView();
+
+            Pixiv.App.Current.ModalPushed += (obj, e) => m_reload?.SetWait();
+
+            Pixiv.App.Current.ModalPopped += (obj, e) => m_reload?.SetNotWait();
         } 
 
         void InitCrawlingMoedValue()
@@ -2365,14 +2369,7 @@ namespace Pixiv
                 });
             };
 
-            m_reload?.SetWait();
-          
-            Navigation.PushModalAsync(new ViewImagePage(task, action))
-                .ContinueWith((t) =>
-                {
-                    m_reload?.SetNotWait();
-                });
-
+            Navigation.PushModalAsync(new ViewImagePage(task, action));
         }
 
 

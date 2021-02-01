@@ -1464,15 +1464,15 @@ namespace Pixiv
             }
         }
 
-        async Task Load(string path)
+        public async Task<byte[]> Load(string path)
         {
             Uri uri = CreatePixivData.GetOriginalUri(path);
 
-            byte[] buffer = await m_client(uri, CancellationToken.None).ConfigureAwait(false);
-
-            await SaveImage(buffer).ConfigureAwait(false);
+            return await m_client(uri, CancellationToken.None).ConfigureAwait(false);
 
         }
+
+
 
         async Task LoadCount(string path)
         {
@@ -1480,13 +1480,19 @@ namespace Pixiv
             {
                 m_count.AddCount();
 
-                await Load(path).ConfigureAwait(false);
+                var buffer = await Load(path).ConfigureAwait(false);
+
+
+                await SaveImage(buffer).ConfigureAwait(false);
+
             }
             finally
             {
                 m_count.SubCount();
             }
         }
+
+
 
         public void Add(string path)
         {
@@ -2344,6 +2350,31 @@ namespace Pixiv
             return true;
         }
 
+        void ViewImagePage(Data data)
+        {
+            var task = Task.Run(() => m_download.Load(data.Path));
+
+            Action action = () =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+
+                    Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
+
+                    m_download.Add(data.Path);
+                });
+            };
+
+            m_reload?.SetWait();
+          
+            Navigation.PushModalAsync(new ViewImagePage(task, action))
+                .ContinueWith((t) =>
+                {
+                    m_reload?.SetNotWait();
+                });
+
+        }
+
 
         void OnCollectionViewSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -2351,9 +2382,7 @@ namespace Pixiv
             {
                 Data data = (Data)m_collView.SelectedItem;
 
-                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
-
-                m_download.Add(data.Path);
+                ViewImagePage(data);
 
                 m_collView.SelectedItem = null;
             }

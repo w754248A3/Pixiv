@@ -1464,7 +1464,7 @@ namespace Pixiv
             }
         }
 
-        public async Task<byte[]> Load(string path)
+        async Task<byte[]> Load(string path)
         {
             Uri uri = CreatePixivData.GetOriginalUri(path);
 
@@ -2356,8 +2356,7 @@ namespace Pixiv
 
         void ViewImagePage(Data data)
         {
-            var task = Task.Run(() => m_download.Load(data.Path));
-
+            
             Action action = () =>
             {
                 MainThread.BeginInvokeOnMainThread(() =>
@@ -2369,7 +2368,7 @@ namespace Pixiv
                 });
             };
 
-            Navigation.PushModalAsync(new ViewImagePage(task, action));
+            Navigation.PushModalAsync(new ViewImagePage(data, action));
         }
 
 

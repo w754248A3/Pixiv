@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Pixiv.DataBaseManagementPage">
+    <StackLayout>
+        <StackLayout Orientation="Horizontal">
+            <Label Text="最小收藏"></Label>
+            <Entry x:Name="m_min_mark_value"
+                       WidthRequest="200"
+                       Keyboard="Numeric"></Entry>
+        </StackLayout>
+        <Button Text="删除"
+                Clicked="OnDelete"></Button>
+    </StackLayout>
+</ContentPage>

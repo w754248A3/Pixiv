@@ -809,6 +809,16 @@ namespace Pixiv
             return default;
         }
 
+        public static int Delete(SQLiteConnection connection, string tableName, string itemName, int minValue)
+        {
+            if (minValue >= 1000)
+            {
+                throw new ArgumentOutOfRangeException("真的要删除吗?");
+            }
+
+            return connection.Execute($"DELETE FROM {tableName} WHERE {itemName} <= {minValue}");
+        }
+
         static PixivData Find_(int id)
         {
             return s_connection.Find<PixivData>(id);
@@ -939,6 +949,12 @@ namespace Pixiv
         public static Task AddAll(List<PixivData> datas)
         {
             return F(() => AddAll_(datas));
+        }
+
+
+        public static Task<int> Delete(int minMark)
+        {
+            return F(() => Delete(s_connection, nameof(PixivData), nameof(PixivData.Mark), minMark));
         }
     }
 
@@ -2509,6 +2525,11 @@ namespace Pixiv
         void OnSetWebInfo(object sender, EventArgs e)
         {
             Navigation.PushModalAsync(new InputWebInfoPage());
+        }
+
+        void OnDataBaseManagement(object sender, EventArgs e)
+        {
+            Navigation.PushModalAsync(new DataBaseManagementPage());
         }
     }
 }

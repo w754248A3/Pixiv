@@ -37,6 +37,8 @@
                     Clicked="OnSetLastId"></Button>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
+            <Button Text="管理数据库"
+                    Clicked="OnDataBaseManagement"></Button>
             <Button Text="设置WebInfo"
                     Clicked="OnSetWebInfo"></Button>
             <Button Text="隐藏"

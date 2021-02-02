@@ -809,6 +809,11 @@ namespace Pixiv
             return default;
         }
 
+        public static int Vacuum(SQLiteConnection connection)
+        {
+            return connection.Execute("VACUUM");
+        }
+
         public static int Delete(SQLiteConnection connection, string tableName, string itemName, int minValue)
         {
             if (minValue >= 1000)
@@ -955,6 +960,11 @@ namespace Pixiv
         public static Task<int> Delete(int minMark)
         {
             return F(() => Delete(s_connection, nameof(PixivData), nameof(PixivData.Mark), minMark));
+        }
+
+        public static Task<int> Vacuum()
+        {
+            return F(() => Vacuum(s_connection));
         }
     }
 

@@ -11,5 +11,7 @@
         </StackLayout>
         <Button Text="删除"
                 Clicked="OnDelete"></Button>
+        <Button Text="紧缩数据库"
+                Clicked="OnVacuum"></Button>
     </StackLayout>
 </ContentPage>

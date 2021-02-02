@@ -21,10 +21,12 @@ namespace Pixiv
 
         void OnDelete(object sender, EventArgs e)
         {
-            
+            var button = (Button)sender;
+
+
             if (int.TryParse(m_min_mark_value.Text, out int minMark) && minMark >= 0)
             {
-                m_min_mark_value.IsEnabled = false;
+                button.IsEnabled = false;
 
                 DataBase.Delete(minMark)
                     .ContinueWith((t) =>
@@ -43,7 +45,7 @@ namespace Pixiv
                             }
                             finally
                             {
-                                m_min_mark_value.IsEnabled = true;
+                                button.IsEnabled = true;
                             }
                         });     
                     });
@@ -54,6 +56,35 @@ namespace Pixiv
             {
                 DisplayAlert("消息", "输入错误", "确定");
             }
+        }
+
+        void OnVacuum(object sender, EventArgs e)
+        {
+            var button = (Button)sender;
+
+            button.IsEnabled = false;
+
+            DataBase.Vacuum()
+                .ContinueWith((t) =>
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        try
+                        {
+                            t.Wait();
+
+                            DisplayAlert("消息", $"紧缩成功", "确定");
+                        }
+                        catch (AggregateException e)
+                        {
+                            DisplayAlert("消息", e.InnerException.Message, "确定");
+                        }
+                        finally
+                        {
+                            button.IsEnabled = true;
+                        }
+                    });
+                });
         }
     }
 }

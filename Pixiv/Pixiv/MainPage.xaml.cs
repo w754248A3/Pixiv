@@ -123,11 +123,22 @@ namespace Pixiv
 
         }
 
-        public static Uri GetSmallUri(PixivData data)
+        static Uri Get(string s, string path)
         {
-            return new Uri("https://i.pximg.net/c/540x540_70/img-master/img/" + WithOut(data.Path) + "_master1200.jpg");
+            return new Uri(s + WithOut(path) + "_master1200.jpg");
         }
 
+        public static Uri GetSmallUri(string path)
+        {
+            return Get("https://i.pximg.net/c/540x540_70/img-master/img/", path);
+        }
+
+        
+
+        public static Uri GetRegularUri(string path)
+        {
+            return Get("https://i.pximg.net/img-master/img/", path);
+        }
 
         public static Uri GetNextUri(int value)
         {
@@ -1464,9 +1475,11 @@ namespace Pixiv
             }
         }
 
-        async Task<byte[]> Load(string path)
+        public async Task<byte[]> Load(string path, bool originalImage = false)
         {
-            Uri uri = CreatePixivData.GetOriginalUri(path);
+
+
+            Uri uri = originalImage ? CreatePixivData.GetOriginalUri(path) : CreatePixivData.GetRegularUri(path);
 
             return await m_client(uri, CancellationToken.None).ConfigureAwait(false);
 
@@ -1480,7 +1493,7 @@ namespace Pixiv
             {
                 m_count.AddCount();
 
-                var buffer = await Load(path).ConfigureAwait(false);
+                var buffer = await Load(path, true).ConfigureAwait(false);
 
 
                 await SaveImage(buffer).ConfigureAwait(false);
@@ -1532,7 +1545,7 @@ namespace Pixiv
 
                     byte[] buffer = await GetAsync(data.ItemId, () =>
                     {
-                        Uri uri = CreatePixivData.GetSmallUri(data);
+                        Uri uri = CreatePixivData.GetSmallUri(data.Path);
 
                         return func(uri, cancellationToken);
                     }).ConfigureAwait(false);
@@ -2356,7 +2369,9 @@ namespace Pixiv
 
         void ViewImagePage(Data data)
         {
-            
+
+            var task = Task.Run(() => m_download.Load(data.Path));
+
             Action action = () =>
             {
                 MainThread.BeginInvokeOnMainThread(() =>
@@ -2368,7 +2383,7 @@ namespace Pixiv
                 });
             };
 
-            Navigation.PushModalAsync(new ViewImagePage(data, action));
+            Navigation.PushModalAsync(new ViewImagePage(task, action));
         }
 
 

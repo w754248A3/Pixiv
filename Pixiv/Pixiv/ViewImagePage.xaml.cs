@@ -17,11 +17,13 @@ namespace Pixiv
 
 
 
-        public ViewImagePage(Task<byte[]> task, Action clicked)
+        public ViewImagePage(byte[] buffer, Task<byte[]> task, Action clicked)
         {
             InitializeComponent();
 
             m_clicked = clicked;
+
+            m_image.Source = ImageSource.FromStream(() => new MemoryStream(buffer));
 
             task.ContinueWith((t) =>
             {

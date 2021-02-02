@@ -2383,7 +2383,7 @@ namespace Pixiv
                 });
             };
 
-            Navigation.PushModalAsync(new ViewImagePage(task, action));
+            Navigation.PushModalAsync(new ViewImagePage(data.Buffer, task, action));
         }
 
 

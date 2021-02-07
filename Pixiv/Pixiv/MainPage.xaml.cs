@@ -1356,7 +1356,7 @@ namespace Pixiv
         {
            
 
-            const int ID_PRE_LOAD_COUNT = 10000;
+            const int ID_PRE_LOAD_COUNT = 1000;
 
             startId -= ID_PRE_LOAD_COUNT * 4;
 
@@ -1695,6 +1695,7 @@ namespace Pixiv
 
             preLoad.Read = () => Task.Run(() => imgs.Reader.ReadAsync(source.Token).AsTask());
 
+            preLoad.Token = source.Token;
 
             return preLoad;
         }
@@ -1704,7 +1705,7 @@ namespace Pixiv
 
         Func<Task<Data>> Read { get; set; }
 
-
+        CancellationToken Token { get; set; }
 
         public void Complete()
         {
@@ -1721,18 +1722,15 @@ namespace Pixiv
                 {
                     while (true)
                     {
-                        if (m_slim.Wait(TimeSpan.Zero))
-                        {
-                            var data = await Read().ConfigureAwait(false);
+                        m_slim.Wait(Token);
 
-                            var timeSpan = await func(data).ConfigureAwait(false);
+                        m_slim_mode_page.Wait(Token);
 
-                            await Task.Delay(timeSpan).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            await Task.Delay(new TimeSpan(0, 0, 2)).ConfigureAwait(false);
-                        }
+                        var data = await Read().ConfigureAwait(false);
+
+                        var timeSpan = await func(data).ConfigureAwait(false);
+
+                        await Task.Delay(timeSpan).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)
@@ -1763,9 +1761,23 @@ namespace Pixiv
             m_slim.Set();
         }
 
+        ManualResetEventSlim m_slim_mode_page = new ManualResetEventSlim();
+
+        public void SetWaitModePage()
+        {
+            m_slim_mode_page.Reset();
+        }
+
+        public void SetNotWaitModePage()
+        {
+            m_slim_mode_page.Set();
+        }
+
         private Preload()
         {
             SetNotWait();
+
+            SetNotWaitModePage();
         }
     }
 
@@ -2081,7 +2093,7 @@ namespace Pixiv
     {
         const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
 
-        const int SMALL_IMG_TIMEOUT = 30;
+        const int SMALL_IMG_TIMEOUT = 120;
 
 
         const int SMALL_IMG_PERLOAD_COUNT = 12;
@@ -2101,7 +2113,7 @@ namespace Pixiv
 
         const int CRAWLING_MAX_EX_COUNT = 1000;
 
-        const int CRAWLING_TIMEOUT = 10;
+        const int CRAWLING_TIMEOUT = 60;
 
 
         const int PIXIVDATA_PRELOAD_COUNT = 200;
@@ -2179,9 +2191,9 @@ namespace Pixiv
 
             InitCollView();
 
-            Pixiv.App.Current.ModalPushed += (obj, e) => m_reload?.SetWait();
+            Pixiv.App.Current.ModalPushed += (obj, e) => m_reload?.SetWaitModePage();
 
-            Pixiv.App.Current.ModalPopped += (obj, e) => m_reload?.SetNotWait();
+            Pixiv.App.Current.ModalPopped += (obj, e) => m_reload?.SetNotWaitModePage();
         } 
 
         void InitCrawlingMoedValue()
@@ -2402,9 +2414,6 @@ namespace Pixiv
             {
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-
-                    Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
-
                     m_download.Add(data.Path);
                 });
             };
@@ -2418,6 +2427,9 @@ namespace Pixiv
             if (m_collView.SelectedItem != null)
             {
                 Data data = (Data)m_collView.SelectedItem;
+
+                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
+
 
                 ViewImagePage(data);
 

@@ -1067,7 +1067,7 @@ namespace Pixiv
 
             Task timeOutTask = Task.Delay(timeSpan);
 
-            Func<Task, Task<bool>> isTimeOut = async (itemTask) =>
+            async Task<bool> isTimeOut(Task itemTask)
             {
                 var t = await Task.WhenAny(itemTask, timeOutTask).ConfigureAwait(false);
 
@@ -1081,13 +1081,13 @@ namespace Pixiv
 
                     return true;
                 }
-            };
-            
+            }
+
             var list = new List<PixivData>(maxCount);
             
             int saveCount = 0;
 
-            Func<Task> addAll = () =>
+            Task addAll()
             {
                 var v = list;
 
@@ -1099,9 +1099,9 @@ namespace Pixiv
 
                 return DataBase.AddAll(v);
 
-            };
+            }
 
-            Func<Task<PixivData>, Task> addAllOver = async (t) =>
+            async Task addAllOver(Task<PixivData> t)
             {
                 var item = await t.ConfigureAwait(false);
 
@@ -1112,10 +1112,10 @@ namespace Pixiv
                 {
                     await addAll().ConfigureAwait(false);
                 }
-                
-            };
 
-            Func<Task> addAllTimeOut = () =>
+            }
+
+            Task addAllTimeOut()
             {
                 if (list.Count != 0)
                 {
@@ -1125,7 +1125,7 @@ namespace Pixiv
                 {
                     return Task.CompletedTask;
                 }
-            };
+            }
 
             try
             {
@@ -1330,19 +1330,19 @@ namespace Pixiv
         {
             var ts = new List<Task>();
 
-            Action<int> onIdAction = (n) =>
+            void onIdAction(int n)
             {
                 countPack.Id = n;
 
                 countPack.Load++;
 
                 countPack.AddHtmlCount();
-            };
+            }
 
-            Action<int> endIdAction = (n) =>
+            void endIdAction(int n)
             {
                 countPack.SubHtmlCount();
-            };
+            }
 
             foreach (var item in Enumerable.Range(0, runCount))
             {
@@ -1380,13 +1380,14 @@ namespace Pixiv
 
             var allTask = CreateTask(func, source.Token, ids, datas, runCount, countPack).ContinueWith(completeFunc);
 
-            var craw = new Crawling();
+            var craw = new Crawling
+            {
+                Task = allTask,
 
-            craw.Task = allTask;
+                Count = countPack,
 
-            craw.Count = countPack;
-
-            craw.CompleteAdding = () => completeFunc(Task.CompletedTask);
+                CompleteAdding = () => completeFunc(Task.CompletedTask)
+            };
 
             return craw;
         }
@@ -1494,11 +1495,8 @@ namespace Pixiv
         {
             string name = Path.Combine(m_basePath, Path.GetRandomFileName() + ".png");
 
-            using (var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 1, true))
-            {
-
-                await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
-            }
+            using var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 1, true);
+            await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
         }
 
         public async Task<byte[]> Load(string path, bool originalImage = false)
@@ -1689,13 +1687,14 @@ namespace Pixiv
             AddAllTask(imgLoadCount, () => CreateLoadImg(func, source.Token, datas, imgs))
                 .ContinueWith(cencelAction);
 
-            var preLoad = new Preload();
+            var preLoad = new Preload
+            {
+                Cencel = () => cencelAction(Task.CompletedTask),
 
-            preLoad.Cencel = () => cencelAction(Task.CompletedTask);
+                Read = () => Task.Run(() => imgs.Reader.ReadAsync(source.Token).AsTask()),
 
-            preLoad.Read = () => Task.Run(() => imgs.Reader.ReadAsync(source.Token).AsTask());
-
-            preLoad.Token = source.Token;
+                Token = source.Token
+            };
 
             return preLoad;
         }
@@ -2284,10 +2283,7 @@ namespace Pixiv
 
                 m_viewText.Text = s;
 
-                if (m_action != null)
-                {
-                    m_action();
-                }
+                m_action?.Invoke();
 
                 await Task.Delay(new TimeSpan(0, 0, MESSAGE_FLUSH_TIMESPAN));
             }
@@ -2300,11 +2296,12 @@ namespace Pixiv
 
         void SetCollViewColumn(int viewColumn)
         {
-            var v = new GridItemsLayout(viewColumn, ItemsLayoutOrientation.Vertical);
+            var v = new GridItemsLayout(viewColumn, ItemsLayoutOrientation.Vertical)
+            {
+                SnapPointsType = SnapPointsType.Mandatory,
 
-            v.SnapPointsType = SnapPointsType.Mandatory;
-
-            v.SnapPointsAlignment = SnapPointsAlignment.End;
+                SnapPointsAlignment = SnapPointsAlignment.End
+            };
 
             m_collView.ItemsLayout = v;
         }
@@ -2410,13 +2407,13 @@ namespace Pixiv
 
             var task = Task.Run(() => m_download.Load(data.Path));
 
-            Action action = () =>
+            void action()
             {
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
                     m_download.Add(data.Path);
                 });
-            };
+            }
 
             Navigation.PushModalAsync(new ViewImagePage(data.Buffer, task, action));
         }

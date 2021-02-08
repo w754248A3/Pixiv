@@ -778,6 +778,20 @@ namespace Pixiv
             s_slim = new SemaphoreSlim(1, 1);
         }
 
+        static int GetMinItemId_()
+        {
+            var datas = s_connection.Table<PixivData>().OrderBy((v) => v.ItemId).Take(1).ToList();
+
+            if (datas.Count == 0)
+            {
+                return START_VALUE;
+            }
+            else
+            {
+                return datas[0].ItemId;
+            }
+        }
+
         static int GetMaxItemId_()
         {
            
@@ -929,6 +943,11 @@ namespace Pixiv
         public static Task<int> GetMaxItemId()
         {
             return F(GetMaxItemId_);
+        }
+
+        public static Task<int> GetMinItemId()
+        {
+            return F(GetMinItemId_);
         }
 
         public static Task<int> Add(PixivData data)
@@ -2525,7 +2544,7 @@ namespace Pixiv
             m_start_cons.IsVisible = false;
         }
 
-        void OnSetLastId(object sender, EventArgs e)
+        void OnSetMaxId(object sender, EventArgs e)
         {
             Task tt = DataBase.GetMaxItemId().ContinueWith((t) =>
             {
@@ -2549,6 +2568,20 @@ namespace Pixiv
         void OnDataBaseManagement(object sender, EventArgs e)
         {
             Navigation.PushModalAsync(new DataBaseManagementPage());
+        }
+
+        void OnSetMinId(object sender, EventArgs e)
+        {
+            DataBase.GetMinItemId().ContinueWith((t) =>
+            {
+                int n = t.Result;
+
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    m_endId_value.Text = n.ToString();
+                    m_max_id_value.Text = n.ToString();
+                });
+            });
         }
     }
 }

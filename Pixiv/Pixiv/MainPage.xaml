@@ -33,8 +33,10 @@
                 <Picker x:Name="m_crawling_moed_value"
                         WidthRequest="200"></Picker>
             </StackLayout>
-            <Button Text="设置为最后的ID"
-                    Clicked="OnSetLastId"></Button>
+            <Button Text="将起始ID设置为最大ID"
+                    Clicked="OnSetMaxId"></Button>
+            <Button Text="将结束ID设置为最小ID"
+                    Clicked="OnSetMinId"></Button>
             <Button Text="从输入ID开始爬取"
                     Clicked="OnStartFromInputId"></Button>
             <Button Text="管理数据库"

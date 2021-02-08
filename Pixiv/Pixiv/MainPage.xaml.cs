@@ -2205,7 +2205,9 @@ namespace Pixiv
             InitInputView();
 
             Log.Write("viewtext", InitViewText());
-           
+
+
+            InitGC();
 
             InitCollView();
 
@@ -2213,6 +2215,20 @@ namespace Pixiv
 
             Pixiv.App.Current.ModalPopped += (obj, e) => m_reload?.SetNotWaitModePage();
         } 
+
+        void InitGC()
+        {
+            Task.Run(async () =>
+            {
+                while (true)
+                {
+                    GC.Collect();
+                    GC.Collect();
+
+                    await Task.Delay(new TimeSpan(0, 1, 0)).ConfigureAwait(false);
+                }
+            });
+        }
 
         void InitCrawlingMoedValue()
         {

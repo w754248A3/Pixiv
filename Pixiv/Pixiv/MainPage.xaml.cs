@@ -537,8 +537,6 @@ namespace Pixiv
                 AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host),
 
                 MaxStreamPoolCount = maxStreamPoolCount
-
-
             });
 
             return (uri, cancellationToken) => client.GetStringAsync(uri, cancellationToken);
@@ -566,7 +564,7 @@ namespace Pixiv
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 
-                MaxResponseSize = maxResponseSize
+                MaxResponseContentSize = maxResponseSize
 
             });
 
@@ -2111,7 +2109,7 @@ namespace Pixiv
     {
         const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
 
-        const int SMALL_IMG_TIMEOUT = 120;
+        const int SMALL_IMG_TIMEOUT = 15;
 
 
         const int SMALL_IMG_PERLOAD_COUNT = 12;
@@ -2126,12 +2124,7 @@ namespace Pixiv
 
 
 
-
-        const int CRAWLING_COUNT = 64;
-
-        const int CRAWLING_MAX_EX_COUNT = 1000;
-
-        const int CRAWLING_TIMEOUT = 60;
+        const int CRAWLING_TIMEOUT = 6;
 
 
         const int PIXIVDATA_PRELOAD_COUNT = 200;

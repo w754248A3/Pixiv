@@ -33,9 +33,6 @@ namespace Pixiv.Droid
 
             AndroidEnvironment.UnhandledExceptionRaiser += AndroidEnvironment_UnhandledExceptionRaiser;
 
-            CreateNotificationChannel();
-
-            CreateNotification();
             LoadApplication(new App(Android.OS.Environment.ExternalStorageDirectory.AbsolutePath));
         }
 
@@ -64,45 +61,6 @@ namespace Pixiv.Droid
             string s = System.Environment.NewLine;
 
             File.AppendAllText($"/storage/emulated/0/pixiv.{name}.txt", $"{s}{s}{s}{s}{DateTime.Now}{s}{e}", System.Text.Encoding.UTF8);
-        }
-
-        const string CHANNEL_ID = "53453435465435";
-       
-        void CreateNotification()
-        {
-            // Instantiate the builder and set notification elements:
-            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-                .SetContentTitle("Sample Notification")
-                .SetContentText("Hello World! This is my first notification!")
-                .SetSmallIcon(Resource.Drawable.notify_panel_notification_icon_bg)
-                .SetOngoing(true);
-
-            // Build the notification:
-            Notification notification = builder.Build();
-
-            // Get the notification manager:
-            NotificationManager notificationManager =
-                GetSystemService(NotificationService) as NotificationManager;
-
-            // Publish the notification:
-            const int notificationId = 985852343;
-            notificationManager.Notify(notificationId, notification);
-        }
-
-        void CreateNotificationChannel()
-        {
-            if (Build.VERSION.SdkInt < BuildVersionCodes.O)
-            {
-                // Notification channels are new in API 26 (and not a part of the
-                // support library). There is no need to create a notification
-                // channel on older versions of Android.
-                return;
-            }
-
-            var channel = new NotificationChannel(CHANNEL_ID, "PIXIV", NotificationImportance.Default);
-
-            var notificationManager = (NotificationManager)GetSystemService(NotificationService);
-            notificationManager.CreateNotificationChannel(channel);
         }
 
         public override void OnRequestPermissionsResult(int requestCode, string[] permissions, [GeneratedEnum] Android.Content.PM.Permission[] grantResults)

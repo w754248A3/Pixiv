@@ -532,11 +532,14 @@ namespace Pixiv
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
+                StreamCallback = MHttpClientHandler.CreateNewConnectAsync(
+                    MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
+                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host)),
 
-                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host),
+                MaxStreamPoolCount = maxStreamPoolCount,
 
-                MaxStreamPoolCount = maxStreamPoolCount
+                
+                 
             });
 
             return (uri, cancellationToken) => client.GetStringAsync(uri, cancellationToken);
@@ -558,14 +561,15 @@ namespace Pixiv
 
             MHttpClient client = new MHttpClient(new MHttpClientHandler
             {
-                ConnectCallback = MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
-
-                AuthenticateCallback = MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host),
+                StreamCallback = MHttpClientHandler.CreateNewConnectAsync(
+                    MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
+                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host)),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 
-                MaxResponseContentSize = maxResponseSize
+                MaxResponseContentSize = maxResponseSize,
 
+                
             });
 
             Uri referer = new Uri("https://www.pixiv.net/");
@@ -2124,7 +2128,7 @@ namespace Pixiv
 
 
 
-        const int CRAWLING_TIMEOUT = 6;
+        const int CRAWLING_TIMEOUT = 30;
 
 
         const int PIXIVDATA_PRELOAD_COUNT = 200;

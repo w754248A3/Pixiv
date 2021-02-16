@@ -1069,7 +1069,8 @@ namespace Pixiv
                 }
                 catch (MHttpClientException e)
                 {
-                    if (e.InnerException is MHttpResponseException)
+                    if (e.InnerException is MHttpResponseException ||
+                        e.InnerException is OperationCanceledException)
                     {
 
                     }

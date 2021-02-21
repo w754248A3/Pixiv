@@ -534,7 +534,7 @@ namespace Pixiv
             {
                 StreamCallback = MHttpClientHandler.CreateNewConnectAsync(
                     MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
-                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host)),
+                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host, false)),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 
@@ -563,7 +563,7 @@ namespace Pixiv
             {
                 StreamCallback = MHttpClientHandler.CreateNewConnectAsync(
                     MHttpClientHandler.CreateCreateConnectAsyncFunc(dns_host, 443),
-                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host)),
+                    MHttpClientHandler.CreateCreateAuthenticateAsyncFunc(sni_host, false)),
 
                 MaxStreamPoolCount = maxStreamPoolCount,
 

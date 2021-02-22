@@ -4,127 +4,14 @@
              x:Class="Pixiv.MainPage"
              xmlns:data="clr-namespace:Pixiv">
     <StackLayout>
-        <Label x:Name="m_viewText"></Label>
-        <StackLayout x:Name="m_start_cons">
-            <StackLayout Orientation="Horizontal">
-                <Label Text="StartId"></Label>
-                <Entry x:Name="m_startId_value"
-                       WidthRequest="100"
-                       Keyboard="Numeric"></Entry>
-                <Label Text="EndId"></Label>
-                <Entry x:Name="m_endId_value"
-                       WidthRequest="100"
-                       Keyboard="Numeric"></Entry>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="TaskCount"></Label>
-                <Entry x:Name="m_task_count_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="MaxExCount"></Label>
-                <Entry x:Name="m_max_ex_count_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="CrawlingMoed"></Label>
-                <Picker x:Name="m_crawling_moed_value"
-                        WidthRequest="200"></Picker>
-            </StackLayout>
-            <Button Text="将起始ID设置为最大ID"
-                    Clicked="OnSetMaxId"></Button>
-            <Button Text="将结束ID设置为最小ID"
-                    Clicked="OnSetMinId"></Button>
-            <Button Text="从输入ID开始爬取"
-                    Clicked="OnStartFromInputId"></Button>
-            <Button Text="管理数据库"
+        <Label x:Name="m_messageView"></Label>
+        <Button Text="管理数据库"
                     Clicked="OnDataBaseManagement"></Button>
-            <Button Text="设置WebInfo"
+        <Button Text="设置WebInfo"
                     Clicked="OnSetWebInfo"></Button>
-            <Button Text="隐藏"
-                    Clicked="OnVisibleStartConsole"></Button>
-        </StackLayout>
-        <StackLayout x:Name="m_cons">
-            <StackLayout x:Name="m_nottag_cons">
-                <StackLayout Orientation="Horizontal">
-                    <Label Text="MinMark"></Label>
-                    <Entry x:Name="m_min_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-                </StackLayout>
-                <StackLayout Orientation="Horizontal">
-                    <Label Text="MaxMark"></Label>
-                    <Entry x:Name="m_max_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-                </StackLayout>
-                <StackLayout Orientation="Horizontal">
-                    <Label Text="MinId"></Label>
-                    <Entry x:Name="m_min_id_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-                </StackLayout>
-                <StackLayout Orientation="Horizontal">
-                    <Label Text="MaxId"></Label>
-                    <Entry x:Name="m_max_id_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-                </StackLayout>
-            </StackLayout>
-            <StackLayout>
-                <CollectionView x:Name="m_tag_value_histry"
-                                SelectionMode="Single"
-                                SelectionChanged="OnTagHistrySelect"
-                                IsVisible="false">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Label Text="{Binding}"></Label>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-                <StackLayout Orientation="Horizontal">
-                    <Label Text="Tag"></Label>
-                    <Entry x:Name="m_tag_value"
-                       WidthRequest="200"
-                       Keyboard="Text"
-                       Focused="OnTagEntryFocused"
-                       Unfocused="OnTagEntryUnFocused"></Entry>
-                </StackLayout>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="NotTag"></Label>
-                <Entry x:Name="m_nottag_value"
-                       WidthRequest="200"
-                       Keyboard="Text"></Entry>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="Offset"></Label>
-                <Entry x:Name="m_offset_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-            </StackLayout>
-            <StackLayout Orientation="Horizontal">
-                <Label Text="显示列数"></Label>
-                <Entry x:Name="m_view_column_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-            </StackLayout>
-            <StackLayout>
-                <Button Text="Start" Clicked="OnStart"></Button>
-            </StackLayout>
-        </StackLayout>
-        <CollectionView x:Name="m_collView"
-                        SelectionMode="Single"
-                        SelectionChanged="OnCollectionViewSelectionChanged"
-                        Scrolled="OnScrolled"
-                        ItemsUpdatingScrollMode="KeepLastItemInView">
-            <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="data:Data">
-                    <Image Source="{Binding ImageSource}"></Image>
-                </DataTemplate>
-            </CollectionView.ItemTemplate>
-        </CollectionView>
+        <Button Text="管理抓取"
+                Clicked="OnCrawlingManagement"></Button>
+        <Button Text="管理展示"
+                Clicked="OnViewImageManagement"></Button>
     </StackLayout>
 </ContentPage>

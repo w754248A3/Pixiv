@@ -3,6 +3,5 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="Pixiv.ViewImagePage">
     <ImageButton x:Name="m_image"
-                 Clicked="OnClicked"
-                 BorderColor="Black"></ImageButton>
+                 Clicked="OnClicked"></ImageButton>
 </ContentPage>

@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Pixiv.ViewImageSettingPage">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+        </Grid.RowDefinitions>
+        <TableView Grid.Row="0"
+                   Intent="Settings">
+            <TableRoot>
+                <TableSection>
+                    <EntryCell x:Name="m_min_id_value"
+                               Label="最小ID"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_max_id_value"
+                               Label="最大ID"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_min_mark_value"
+                               Label="最小收藏"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_max_mark_value"
+                               Label="最大收藏"
+                               Keyboard="Numeric"></EntryCell>
+                </TableSection>
+                <TableSection>
+                    <ViewCell>
+                        <StackLayout Orientation="Horizontal">
+                            <Button Text="输入Tag"
+                                    Clicked="OnInputTag"></Button>
+                            <Label x:Name="m_tag_value"></Label>
+                        </StackLayout>
+                    </ViewCell>
+                </TableSection>
+                <TableSection>
+                    <ViewCell>
+                        <StackLayout Orientation="Horizontal">
+                            <Button Text="输入排除Tag"
+                                    Clicked="OnInputNotTag"></Button>
+                            <Label x:Name="m_not_tag_value"></Label>
+                        </StackLayout>
+                    </ViewCell>
+                </TableSection>
+                <TableSection>
+                    <EntryCell x:Name="m_offset_value"
+                               Label="偏移"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_view_column_value"
+                               Label="显示列数"
+                               Keyboard="Numeric"></EntryCell>
+                </TableSection>
+            </TableRoot>
+        </TableView>
+        <Button Grid.Row="1"
+                Text="开始"
+                Clicked="OnStartViewImag"></Button>
+    </Grid>
+</ContentPage>

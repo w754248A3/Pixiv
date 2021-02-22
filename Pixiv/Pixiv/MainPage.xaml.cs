@@ -1460,7 +1460,7 @@ namespace Pixiv
         }
     }
 
-    sealed class LoadBigImg
+    public sealed class LoadBigImg
     {
 
         sealed class LoadBigImgCount
@@ -1559,7 +1559,7 @@ namespace Pixiv
         }
     }
 
-    sealed class Preload
+    public sealed class Preload
     {
         static async ValueTask<byte[]> GetAsync(int itemId, Func<Task<byte[]>> func)
         {
@@ -1581,7 +1581,7 @@ namespace Pixiv
             }
         }
 
-        static async Task CreateLoadImg(Func<Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<Data> destion)
+        static async Task CreateLoadImg(Func<Uri, CancellationToken, Task<byte[]>> func, CancellationToken cancellationToken, ChannelReader<PixivData> source, ChannelWriter<ListImageBindData> destion)
         {
             while (true)
             {
@@ -1596,7 +1596,7 @@ namespace Pixiv
                         return func(uri, cancellationToken);
                     }).ConfigureAwait(false);
 
-                    var item = new Data(buffer, data.Path, data.ItemId, data.Tags);
+                    var item = new ListImageBindData(buffer, data.Path, data.ItemId, data.Tags);
 
                     await destion.WriteAsync(item).ConfigureAwait(false);
                 }
@@ -1643,7 +1643,7 @@ namespace Pixiv
             }
         }
 
-        static Action<Task> CreateCencelAction(ChannelWriter<PixivData> pixivDatas, ChannelWriter<Data> datas, CancellationTokenSource source)
+        static Action<Task> CreateCencelAction(ChannelWriter<PixivData> pixivDatas, ChannelWriter<ListImageBindData> datas, CancellationTokenSource source)
         {
             return (t) =>
             {
@@ -1695,7 +1695,7 @@ namespace Pixiv
 
             var datas = Channel.CreateBounded<PixivData>(dataLoadCount);
 
-            var imgs = Channel.CreateBounded<Data>(imgLoadCount);
+            var imgs = Channel.CreateBounded<ListImageBindData>(imgLoadCount);
 
             var source = new CancellationTokenSource();
 
@@ -1724,7 +1724,7 @@ namespace Pixiv
 
         Action Cencel { get; set; }
 
-        Func<Task<Data>> Read { get; set; }
+        Func<Task<ListImageBindData>> Read { get; set; }
 
         CancellationToken Token { get; set; }
 
@@ -1735,7 +1735,7 @@ namespace Pixiv
 
         }
 
-        public Task While(Func<Data, Task<TimeSpan>> func)
+        public Task While(Func<ListImageBindData, Task<TimeSpan>> func)
         {
             return Task.Run(async () =>
             {
@@ -1800,33 +1800,6 @@ namespace Pixiv
 
             SetNotWaitModePage();
         }
-    }
-
-
-    public sealed class Data
-    {
-        public Data(byte[] buffer, string path, int id, string tags)
-        {
-            Id = id;
-
-            Path = path;
-
-            Buffer = buffer;
-
-            ImageSource = ImageSource.FromStream(() => new MemoryStream(Buffer));
-
-            Tags = tags;
-        }
-
-        public int Id { get; }
-
-        public string Path { get; }
-
-        public ImageSource ImageSource { get; }
-
-        public byte[] Buffer { get; }
-
-        public string Tags { get; }
     }
 
     sealed class Xml
@@ -1970,7 +1943,7 @@ namespace Pixiv
             set => Preferences.Set(nameof(Count), value);
         }
 
-        static int F(string s, int minNumber)
+        public static int AsNumber(string s, int minNumber)
         {
             if (int.TryParse(s, out int n) && n >= minNumber)
             {
@@ -1995,7 +1968,7 @@ namespace Pixiv
             }
         }
 
-        public static string[] GetInfo()
+        public static string[] GetTagHistry()
         {
             string s = InputData.Info;
 
@@ -2009,7 +1982,7 @@ namespace Pixiv
             }
         }
 
-        static void SetInfo(string tag)
+        public static void SetTagHistry(string tag)
         {
             if (string.IsNullOrWhiteSpace(tag))
             {
@@ -2031,47 +2004,6 @@ namespace Pixiv
 
                     InputData.Info = Xml.GetSerializeXml(ss);
                 }
-            }
-        }
-
-        public static bool Create(string viewColumn, string maxExCount, string endId, string taskCount, string minId, string maxId, string nottag, string id, string min, string max, string tag, string offset, string count)
-        {
-            try
-            {
-                MinId = minId ?? "";
-
-                MaxId = maxId ?? "";
-
-                CrawlingEndId = endId ?? "";
-
-                CrawlingMaxExCount = maxExCount ?? "";
-
-                TaskCount = F(taskCount, 1);
-
-                CrawlingStartId = F(id, 0);
-
-                MinMark = min ?? "";
-
-                MaxMark = max ?? "";
-
-                ViewColumn = F(viewColumn, 1);
-
-                Offset = F(offset, 0);
-
-                Count = F(count, 1);
-
-
-                NotTag = nottag ?? "";
-
-                Tag = tag ?? "";
-
-                SetInfo(tag);
-
-                return true;
-            }
-            catch (FormatException)
-            {
-                return false;
             }
         }
 
@@ -2110,42 +2042,47 @@ namespace Pixiv
         }
     }
 
+    public static class ConstInfo
+    {
+        public const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
+
+        public const int SMALL_IMG_TIMEOUT = 15;
+
+
+        public const int SMALL_IMG_PERLOAD_COUNT = 12;
+
+
+
+
+        public const int BIG_IMG_RESPONSE_SIZE = 1024 * 1024 * 20;
+
+        public const int BIG_IMG_TIMEOUT = 240;
+
+
+
+
+        public const int CRAWLING_TIMEOUT = 30;
+
+
+        public const int PIXIVDATA_PRELOAD_COUNT = 200;
+
+
+
+        public const int IMG_VIEW_COUNT = 400;
+
+        public const int IMG_TIMESPAN = 1;
+
+        public const int IMG_FLUSH_TIMESPAN = 6;
+
+        public const int MESSAGE_FLUSH_TIMESPAN = 5;
+
+
+
+    }
+
     public partial class MainPage : ContentPage
     {
-        const int SMALL_IMG_RESPONSE_SIZE = 1024 * 1024 * 5;
-
-        const int SMALL_IMG_TIMEOUT = 15;
-
-
-        const int SMALL_IMG_PERLOAD_COUNT = 12;
-
-
-
-
-        const int BIG_IMG_RESPONSE_SIZE = 1024 * 1024 * 20;
-
-        const int BIG_IMG_TIMEOUT = 240;
-
-
-
-
-        const int CRAWLING_TIMEOUT = 30;
-
-
-        const int PIXIVDATA_PRELOAD_COUNT = 200;
-
-
-
-        const int IMG_VIEW_COUNT = 400;
-
-        const int IMG_TIMESPAN = 1;
-
-        const int IMG_FLUSH_TIMESPAN = 6;
-
-        const int MESSAGE_FLUSH_TIMESPAN = 5;
-
-
-
+        
 
         const string ROOT_PATH = "/storage/emulated/0/pixiv/";
 
@@ -2153,17 +2090,10 @@ namespace Pixiv
       
         const string IMG_PATH = ROOT_PATH + "img/";
 
-        readonly ObservableCollection<Data> m_imageSources = new ObservableCollection<Data>();
+       
+        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, ConstInfo.BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, ConstInfo.BIG_IMG_TIMEOUT));
 
-        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, BIG_IMG_TIMEOUT));
-
-        Crawling m_crawling;
-
-        Action m_action;
-
-        Task m_reloadTask;
-
-        Preload m_reload;
+        readonly CrawlingSettingPage m_crawlingPage = new CrawlingSettingPage();
 
         public MainPage(string basePath)
         {
@@ -2200,379 +2130,25 @@ namespace Pixiv
             
             ImgDataBase.Init(BASE_PATH);
 
-            InitInputView();
-
             Log.Write("viewtext", InitViewText());
 
 
-            InitGC();
-
-            InitCollView();
-
-            Pixiv.App.Current.ModalPushed += (obj, e) => m_reload?.SetWaitModePage();
-
-            Pixiv.App.Current.ModalPopped += (obj, e) => m_reload?.SetNotWaitModePage();
         } 
 
-        void InitGC()
-        {
-            Task.Run(async () =>
-            {
-                while (true)
-                {
-                    GC.Collect();
-                    GC.Collect();
-
-                    await Task.Delay(new TimeSpan(0, 1, 0)).ConfigureAwait(false);
-                }
-            });
-        }
-
-        void InitCrawlingMoedValue()
-        {
-            var vs = Enum.GetNames(typeof(Crawling.Mode));
-
-            m_crawling_moed_value.ItemsSource = vs;
-
-            m_crawling_moed_value.SelectedIndex = 0;
-        }
-
-        void InitInputView()
-        {
-            InitCrawlingMoedValue();
-
-            m_max_ex_count_value.Text = InputData.CrawlingMaxExCount;
-
-            m_endId_value.Text = InputData.CrawlingEndId.ToString();
-
-            m_task_count_value.Text = InputData.TaskCount.ToString();
-
-            m_tag_value_histry.ItemsSource = InputData.GetInfo();
-
-            m_max_id_value.Text = InputData.MaxId;
-
-            m_min_id_value.Text = InputData.MinId;
-
-            m_nottag_value.Text = InputData.NotTag;
-
-            m_startId_value.Text = InputData.CrawlingStartId.ToString();
-
-            m_tag_value.Text = InputData.Tag;
-
-            m_min_value.Text = InputData.MinMark.ToString();
-           
-            m_max_value.Text = InputData.MaxMark.ToString();
-            
-            m_offset_value.Text = InputData.Offset.ToString();
-
-            m_view_column_value.Text = InputData.ViewColumn.ToString();
-           
-        }
-
-        bool CreateInput()
-        {
-            return InputData.Create(
-                m_view_column_value.Text,
-                m_max_ex_count_value.Text,
-                m_endId_value.Text,
-                m_task_count_value.Text,
-                m_min_id_value.Text,
-                m_max_id_value.Text,
-                m_nottag_value.Text,
-                m_startId_value.Text,
-                m_min_value.Text,
-                m_max_value.Text,
-                m_tag_value.Text,
-                m_offset_value.Text,
-                PIXIVDATA_PRELOAD_COUNT.ToString());
-        }
-
+        
 
         async Task InitViewText()
         {
             while (true)
             {
-                string s = "";
-               
-                if (m_crawling is null)
-                {
-                    
-                }
-                else
-                {
-                    s += $"{m_crawling.Message}";
-                }
+                m_messageView.Text = m_download.Count.ToString();
 
-                s += $" D:{m_download.Count}";
-
-                if(m_reloadTask is null)
-                {
-
-                }
-                else
-                {
-                    s += $" V:{m_reloadTask.IsCompleted}";
-                }
-
-                m_viewText.Text = s;
-
-                m_action?.Invoke();
-
-                await Task.Delay(new TimeSpan(0, 0, MESSAGE_FLUSH_TIMESPAN));
+                await Task.Delay(new TimeSpan(0, 0, ConstInfo.MESSAGE_FLUSH_TIMESPAN));
             }
         } 
 
-        void InitCollView()
-        {
-            m_collView.ItemsSource = m_imageSources;
-        }
-
-        void SetCollViewColumn(int viewColumn)
-        {
-            var v = new GridItemsLayout(viewColumn, ItemsLayoutOrientation.Vertical)
-            {
-                SnapPointsType = SnapPointsType.Mandatory,
-
-                SnapPointsAlignment = SnapPointsAlignment.End
-            };
-
-            m_collView.ItemsLayout = v;
-        }
-
-        void OnStart(object sender, EventArgs e)
-        {
-            
-            if (CreateInput() == false)
-            {
-                Task t = DisplayAlert("错误", "必须输入参数", "确定");
-            }
-            else
-            {
-                SetCollViewColumn(InputData.ViewColumn);
-
-                m_cons.IsVisible = false;
-
-                m_reload = Preload.Create(InputData.CreateSelectFunc(), PIXIVDATA_PRELOAD_COUNT, SMALL_IMG_PERLOAD_COUNT, SMALL_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, SMALL_IMG_TIMEOUT));
-
-                m_reloadTask = m_reload.While((data) => MainThread.InvokeOnMainThreadAsync(() => SetImage(data)));
-
-                Log.Write("reload", m_reloadTask);
-            }
-        }
-
-        TimeSpan SetImage(Data date)
-        {
-
-            if (m_imageSources.Count == IMG_VIEW_COUNT)
-            {
-                m_imageSources.Add(date);
-
-                return new TimeSpan(0, 0, IMG_FLUSH_TIMESPAN);
-
-                
-            }
-            else if (m_imageSources.Count > IMG_VIEW_COUNT)
-            {
-                m_imageSources.Clear();
-
-                m_imageSources.Add(date);
-
-                return new TimeSpan(0, 0, IMG_TIMESPAN);
-
-            }
-            else
-            {
-                m_imageSources.Add(date);
-
-                return new TimeSpan(0, 0, IMG_TIMESPAN);
-
-            }
-
-
-        }
 
         
-
-        protected override bool OnBackButtonPressed()
-        {
-            if (!(m_reload is null) && !(m_reloadTask is null))
-            {
-                m_reload.Complete();
-
-                m_reloadTask.ContinueWith((t) =>
-                {
-                    MainThread.InvokeOnMainThreadAsync(() =>
-                    {
-                        m_imageSources.Clear();
-
-                        InitInputView();
-
-                        m_cons.IsVisible = true;
-
-                    });
-
-                });
-
-                m_reload = null;
-
-                m_reloadTask = null;
-
-
-                DisplayAlert("消息", "取消中", "确定");
-
-
-            }
-            else
-            {
-                if (!(m_crawling is null))
-                {
-                    m_crawling.CompleteAdding();
-
-                    DisplayAlert("消息", "爬取取消中", "确定");
-                }
-            }
-
-            return true;
-        }
-
-        void ViewImagePage(Data data)
-        {
-
-            var task = Task.Run(() => m_download.Load(data.Path));
-
-            void action()
-            {
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    m_download.Add(data.Path);
-                });
-            }
-
-            Navigation.PushModalAsync(new ViewImagePage(data.Buffer, task, action));
-        }
-
-
-        void OnCollectionViewSelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (m_collView.SelectedItem != null)
-            {
-                Data data = (Data)m_collView.SelectedItem;
-
-                Clipboard.SetTextAsync(CreatePixivData.GetNextUri(data.Id).AbsoluteUri + "    " + data.Tags);
-
-
-                ViewImagePage(data);
-
-                m_collView.SelectedItem = null;
-            }
-        }
-
-        void OnScrolled(object sender, ItemsViewScrolledEventArgs e)
-        {
-            long n = (long)e.VerticalDelta;
-
-            if (n != 0)
-            {
-                if (n < 0)
-                {
-                    m_reload?.SetWait();
-                    
-                }
-                else if (n > 0 && e.LastVisibleItemIndex + 1 == m_imageSources.Count)
-                {
-                    m_reload?.SetNotWait();
-                    
-                }
-            }
-        }
-
-        static Crawling.Mode GetCrawlingMoedValue(string s)
-        {
-            return (Crawling.Mode)Enum.Parse(typeof(Crawling.Mode), s);
-
-        }
-
-        void CrawlingOver(Task task)
-        {
-            MainThread.BeginInvokeOnMainThread(() => m_start_cons.IsVisible = true);
-        }
-
-        
-
-        void OnStartFromInputId(object sender, EventArgs e)
-        {
-            if (CreateInput())
-            {
-                m_start_cons.IsVisible = false;
-
-                MainThread.InvokeOnMainThreadAsync(() =>
-                {
-                    int id = InputData.CrawlingStartId;
-
-                    int? endId = InputData.CreateNullInt32(InputData.CrawlingEndId);
-
-                    int? maxExCount = InputData.CreateNullInt32(InputData.CrawlingMaxExCount);
-
-                    int taskCount = InputData.TaskCount;
-
-                    var moed = GetCrawlingMoedValue(m_crawling_moed_value.SelectedItem.ToString());
-
-                    m_crawling = Crawling.Start(moed, maxExCount, id, endId, taskCount, new TimeSpan(0, 0, CRAWLING_TIMEOUT));
-
-                    m_crawling.Task.ContinueWith(CrawlingOver);
-
-                    m_action = () => InputData.CrawlingStartId = m_crawling.Id;
-                });
-            }
-            else
-            {
-                Task t = DisplayAlert("错误", "必须输入参数", "确定");
-            }  
-        }
-
-        void OnTagEntryFocused(object sender, FocusEventArgs e)
-        {
-            m_tag_value_histry.IsVisible = true;
-
-            m_nottag_cons.IsVisible = false;
-        }
-
-        void OnTagEntryUnFocused(object sender, FocusEventArgs e)
-        {
-            m_tag_value_histry.IsVisible = false;
-
-            m_nottag_cons.IsVisible = true;
-        }
-
-        void OnTagHistrySelect(object sender, SelectionChangedEventArgs e)
-        {
-            m_tag_value.Text = m_tag_value_histry.SelectedItem.ToString();
-
-            m_tag_value_histry.IsVisible = false;
-
-            m_nottag_cons.IsVisible = true;
-        }
-
-        void OnVisibleStartConsole(object sender, EventArgs e)
-        {
-            m_start_cons.IsVisible = false;
-        }
-
-        void OnSetMaxId(object sender, EventArgs e)
-        {
-            Task tt = DataBase.GetMaxItemId().ContinueWith((t) =>
-            {
-                int n = t.Result;
-
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    m_startId_value.Text = n.ToString();
-                    m_min_id_value.Text = n.ToString();
-                });
-            });
-
-            Log.Write("setlastid", tt);
-        }
 
         void OnSetWebInfo(object sender, EventArgs e)
         {
@@ -2584,18 +2160,16 @@ namespace Pixiv
             Navigation.PushModalAsync(new DataBaseManagementPage());
         }
 
-        void OnSetMinId(object sender, EventArgs e)
+        private void OnCrawlingManagement(object sender, EventArgs e)
         {
-            DataBase.GetMinItemId().ContinueWith((t) =>
-            {
-                int n = t.Result;
+            Navigation.PushModalAsync(m_crawlingPage);
+        }
 
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    m_endId_value.Text = n.ToString();
-                    m_max_id_value.Text = n.ToString();
-                });
-            });
+        private void OnViewImageManagement(object sender, EventArgs e)
+        {
+            var page = new ViewImageSettingPage(new ViewImageSettingPageInfo(m_download));
+
+            Navigation.PushModalAsync(page);
         }
     }
 }

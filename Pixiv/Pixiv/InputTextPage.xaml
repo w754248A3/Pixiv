@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Pixiv.InputTextPage">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+        </Grid.RowDefinitions>
+        <CollectionView Grid.Row="0"
+                        x:Name="m_collectionView"
+                        SelectionMode="Single"
+                        SelectionChanged="OnSelectChanged">
+            <CollectionView.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                    <SwipeView>
+                        <SwipeView.RightItems>
+                            <SwipeItem Text="Delete"
+                                   BackgroundColor="LightPink"
+                                   Command="{Binding Source={x:Reference m_collectionView}, Path=BindingContext.DeleteCommand}"
+                                   CommandParameter="{Binding}" />
+                        </SwipeView.RightItems>
+                        <Label Text="{Binding}"></Label>
+                    </SwipeView>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"></ColumnDefinition>
+                <ColumnDefinition Width="*"></ColumnDefinition>
+                <ColumnDefinition Width="Auto"></ColumnDefinition>
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0"
+                   x:Name="m_label"></Label>
+            <Entry Grid.Column="1"
+                   x:Name="m_entry"></Entry>
+            <Button Grid.Column="2"
+                    Clicked="OnInputOK"></Button>
+        </Grid>
+    </Grid>
+</ContentPage>

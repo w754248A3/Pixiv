@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Pixiv.CrawlingSettingPage">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
+        </Grid.RowDefinitions>
+        <TableView Grid.Row="0"
+                   Intent="Settings">
+            <TableRoot>
+                <TableSection>
+                    <EntryCell x:Name="m_start_id_value"
+                               Label="开始ID"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_end_id_value"
+                               Label="结束ID"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_task_count_value"
+                               Label="任务个数"
+                               Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_max_ex_value"
+                               Label="错误响应终止个阈值"
+                               Keyboard="Numeric"></EntryCell>
+                </TableSection>
+                <TableSection>
+                    <ViewCell>
+                        <StackLayout Orientation="Horizontal">
+                            <Label Text="模式"></Label>
+                            <Picker x:Name="m_crawling_mode_picker"></Picker>
+                        </StackLayout>
+                    </ViewCell>
+                </TableSection>
+                <TableSection>
+                    <ViewCell>
+                        <Button Text="将起始ID设置为最大ID"
+                                Clicked="OnSetMaxId"></Button>
+                    </ViewCell>
+                </TableSection>
+                <TableSection>
+                    <ViewCell>
+                        <Button Text="将结束ID设置为最小ID"
+                                Clicked="OnSetMinId"></Button>
+                    </ViewCell>
+                </TableSection>
+            </TableRoot>
+        </TableView>
+        <Label Grid.Row="1"
+               x:Name="m_messageView"></Label>
+        <Button Grid.Row="2"
+                x:Name="m_start_button"
+                Text="开始"
+                IsEnabled="True"
+                Clicked="OnStartCrawling"></Button>
+        <Button Grid.Row="3"
+                x:Name="m_stop_button"
+                Text="停止"
+                IsEnabled="False"
+                Clicked="OnStopCrawling"></Button>
+    </Grid>
+</ContentPage>

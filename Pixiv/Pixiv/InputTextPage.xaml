@@ -20,7 +20,8 @@
                                    Command="{Binding Source={x:Reference m_collectionView}, Path=BindingContext.DeleteCommand}"
                                    CommandParameter="{Binding}" />
                         </SwipeView.RightItems>
-                        <Label Text="{Binding}"></Label>
+                        <Label Text="{Binding}"
+                               HeightRequest="200"></Label>
                     </SwipeView>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
@@ -36,6 +37,7 @@
             <Entry Grid.Column="1"
                    x:Name="m_entry"></Entry>
             <Button Grid.Column="2"
+                    Text="确定"
                     Clicked="OnInputOK"></Button>
         </Grid>
     </Grid>

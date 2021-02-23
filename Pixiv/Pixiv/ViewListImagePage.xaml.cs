@@ -160,12 +160,27 @@ namespace Pixiv
 
         protected override bool OnBackButtonPressed()
         {
-           
-            m_preload.Complete();
 
-            m_info.TaskSource.TrySetResult(default);
+            var task = DisplayAlert("提示", "确定返回？", "是的", "按错了");
 
-            return base.OnBackButtonPressed();
+            task.ContinueWith((t) =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    if (t.Result)
+                    {
+                        m_preload.Complete();
+
+                        m_info.TaskSource.TrySetResult(default);
+
+                        Navigation.PopModalAsync();
+                    }
+                });
+            });
+
+
+
+            return true;
         }
 
         void ViewImagePage(ListImageBindData data)

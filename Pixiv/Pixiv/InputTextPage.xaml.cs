@@ -79,6 +79,8 @@ namespace Pixiv
                     result,
                     m_collectionView.ItemsSource
                             .OfType<string>().Append(result).ToHashSet().ToArray()));
+
+            Navigation.PopModalAsync();
         }
 
         protected override bool OnBackButtonPressed()

@@ -29,12 +29,14 @@ namespace Pixiv
 
             InitInputView();
 
+            InitCrawlingMoedValue();
+
             MainThread.BeginInvokeOnMainThread(() => InitViewText());
         }
 
         void InitInputView()
         {
-            InitCrawlingMoedValue();
+            
 
             m_max_ex_value.Text = InputData.CrawlingMaxExCount;
 
@@ -130,6 +132,7 @@ namespace Pixiv
 
                 m_crawling = Crawling.Start(moed, maxExCount, id, endId, taskCount, new TimeSpan(0, 0, ConstInfo.CRAWLING_TIMEOUT));
 
+                m_crawling.Task.ContinueWith((t) => MainThread.BeginInvokeOnMainThread(() => InitInputView()));
             }
             else
             {

@@ -25,22 +25,16 @@
                     <EntryCell x:Name="m_max_ex_value"
                                Label="错误响应终止个阈值"
                                Keyboard="Numeric"></EntryCell>
-                </TableSection>
-                <TableSection>
                     <ViewCell>
                         <StackLayout Orientation="Horizontal">
                             <Label Text="模式"></Label>
                             <Picker x:Name="m_crawling_mode_picker"></Picker>
                         </StackLayout>
                     </ViewCell>
-                </TableSection>
-                <TableSection>
                     <ViewCell>
                         <Button Text="将起始ID设置为最大ID"
                                 Clicked="OnSetMaxId"></Button>
                     </ViewCell>
-                </TableSection>
-                <TableSection>
                     <ViewCell>
                         <Button Text="将结束ID设置为最小ID"
                                 Clicked="OnSetMinId"></Button>

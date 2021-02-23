@@ -92,7 +92,7 @@ namespace Pixiv
             {
                 var info = new ViewListImagePageInfo(InputData.ViewColumn, m_info.LoadBigImg);
 
-                info.Task.ContinueWith((t) => Init());
+                info.Task.ContinueWith((t) => MainThread.BeginInvokeOnMainThread(() => Init()));
 
                 Navigation.PushModalAsync(new ViewListImagePage(info));
 

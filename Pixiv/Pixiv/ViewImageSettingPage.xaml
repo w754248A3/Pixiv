@@ -23,8 +23,6 @@
                     <EntryCell x:Name="m_max_mark_value"
                                Label="最大收藏"
                                Keyboard="Numeric"></EntryCell>
-                </TableSection>
-                <TableSection>
                     <ViewCell>
                         <StackLayout Orientation="Horizontal">
                             <Button Text="输入Tag"
@@ -32,8 +30,6 @@
                             <Label x:Name="m_tag_value"></Label>
                         </StackLayout>
                     </ViewCell>
-                </TableSection>
-                <TableSection>
                     <ViewCell>
                         <StackLayout Orientation="Horizontal">
                             <Button Text="输入排除Tag"
@@ -41,8 +37,6 @@
                             <Label x:Name="m_not_tag_value"></Label>
                         </StackLayout>
                     </ViewCell>
-                </TableSection>
-                <TableSection>
                     <EntryCell x:Name="m_offset_value"
                                Label="偏移"
                                Keyboard="Numeric"></EntryCell>

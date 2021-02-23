@@ -125,7 +125,7 @@ namespace Pixiv
                     {
                         label.Text = result.Result;
 
-                        InputData.SetTagHistry(result.Result);
+                        InputData.SetTagHistry(result.List);
                     });
                 }
             });

@@ -1982,29 +1982,9 @@ namespace Pixiv
             }
         }
 
-        public static void SetTagHistry(string tag)
+        public static void SetTagHistry(string[] histrys)
         {
-            if (string.IsNullOrWhiteSpace(tag))
-            {
-
-            }
-            else
-            {
-                string s = InputData.Info;
-
-                if (string.IsNullOrWhiteSpace(s))
-                {
-                    InputData.Info = Xml.GetSerializeXml(new string[] { tag });
-                }
-                else
-                {
-                    var ss = Xml.GetDeserializeXml(s).Append(tag).ToArray();
-
-                    ss = (new HashSet<string>(ss)).ToArray(); 
-
-                    InputData.Info = Xml.GetSerializeXml(ss);
-                }
-            }
+            InputData.Info = Xml.GetSerializeXml(histrys ?? new string[0]);
         }
 
         public static Func<Task<List<PixivData>>> CreateSelectFunc()
@@ -2080,6 +2060,16 @@ namespace Pixiv
 
     }
 
+    public sealed class MainPageInfo
+    {
+        public MainPageInfo(string rootPath)
+        {
+            RootPath = rootPath;
+        }
+
+        public string RootPath { get; }
+    }
+
     public partial class MainPage : ContentPage
     {
         
@@ -2095,7 +2085,7 @@ namespace Pixiv
 
         readonly CrawlingSettingPage m_crawlingPage = new CrawlingSettingPage();
 
-        public MainPage(string basePath)
+        public MainPage(MainPageInfo info)
         {
             InitializeComponent();
 

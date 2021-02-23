@@ -33,7 +33,7 @@ namespace Pixiv.Droid
 
             AndroidEnvironment.UnhandledExceptionRaiser += AndroidEnvironment_UnhandledExceptionRaiser;
 
-            LoadApplication(new App(Android.OS.Environment.ExternalStorageDirectory.AbsolutePath));
+            LoadApplication(new App(new MainPageInfo(Android.OS.Environment.ExternalStorageDirectory.AbsolutePath)));
         }
 
         static void CurrentDomain_FirstChanceException(object sender, System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs e)

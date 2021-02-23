@@ -15,13 +15,15 @@
                 <DataTemplate x:DataType="x:String">
                     <SwipeView>
                         <SwipeView.RightItems>
-                            <SwipeItem Text="Delete"
-                                   BackgroundColor="LightPink"
-                                   Command="{Binding Source={x:Reference m_collectionView}, Path=BindingContext.DeleteCommand}"
-                                   CommandParameter="{Binding}" />
+                            <SwipeItems>
+                                <SwipeItem Text="Delete"
+                                           BackgroundColor="LightPink"
+                                           Command="{Binding Source={x:Reference m_collectionView}, Path=BindingContext.DeleteCommand}"
+                                           CommandParameter="{Binding}" />  
+                            </SwipeItems>
                         </SwipeView.RightItems>
                         <Label Text="{Binding}"
-                               HeightRequest="200"></Label>
+                               HeightRequest="30"></Label>
                     </SwipeView>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

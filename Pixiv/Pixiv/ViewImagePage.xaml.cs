@@ -51,6 +51,11 @@ namespace Pixiv
 
             m_info.BufferTask.ContinueWith((t) =>
             {
+                if (t.IsCompletedSuccessfully == false)
+                {
+                    return;
+                }
+
                 var buffer = t.Result;
 
                 MainThread.BeginInvokeOnMainThread(() =>

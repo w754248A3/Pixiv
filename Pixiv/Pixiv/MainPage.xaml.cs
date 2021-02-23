@@ -135,10 +135,10 @@ namespace Pixiv
 
         
 
-        public static Uri GetRegularUri(string path)
-        {
-            return Get("https://i.pximg.net/img-master/img/", path);
-        }
+        //public static Uri GetRegularUri(string path)
+        //{
+        //    return Get("https://i.pximg.net/img-master/img/", path);
+        //}
 
         public static Uri GetNextUri(int value)
         {
@@ -636,14 +636,10 @@ namespace Pixiv
 
     sealed class ImgDataBase
     {
-        public static ImgDataBase Big { get; set; }
-
         public static ImgDataBase Small { get; set; }
 
         public static void Init(string path)
         {
-            Big = Create(path, "Big");
-
             Small = Create(path, "Small");
         }
 
@@ -728,6 +724,22 @@ namespace Pixiv
             {
                 return Find(itemId);
             });   
+        }
+
+        int Delete_(int minValue)
+        {
+            return DataBase.Delete(m_connection, nameof(ImgData), nameof(ImgData.Count), minValue);
+        }
+
+        public Task<int> Delete(int minValue)
+        {
+            return Task.Run(() => Lock(() => Delete_(minValue)).AsTask());
+        }
+
+
+        public Task Vacuum()
+        {
+            return Task.Run(() => Lock(() => DataBase.Vacuum(m_connection)).AsTask());
         }
     }
 
@@ -1521,25 +1533,30 @@ namespace Pixiv
             await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
         }
 
-        public async Task<byte[]> Load(string path, bool originalImage = false)
+        public Task<byte[]> LoadAsync(string path)
         {
 
+            return Task.Run(() =>
+            {
 
-            Uri uri = originalImage ? CreatePixivData.GetOriginalUri(path) : CreatePixivData.GetRegularUri(path);
 
-            return await m_client(uri, CancellationToken.None).ConfigureAwait(false);
+                Uri uri = CreatePixivData.GetOriginalUri(path);
+
+                return m_client(uri, CancellationToken.None);
+
+            });
 
         }
 
 
 
-        async Task LoadCount(string path)
+        async Task LoadCount(Task<byte[]> task)
         {
             try
             {
                 m_count.AddCount();
 
-                var buffer = await Load(path, true).ConfigureAwait(false);
+                var buffer = await task.ConfigureAwait(false);
 
 
                 await SaveImage(buffer).ConfigureAwait(false);
@@ -1553,9 +1570,9 @@ namespace Pixiv
 
 
 
-        public void Add(string path)
+        public void SaveAsync(Task<byte[]> task)
         {
-            Task.Run(() => LoadCount(path));
+            Task.Run(() => LoadCount(task));
         }
     }
 

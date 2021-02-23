@@ -19,16 +19,13 @@ namespace Pixiv
 
 
 
-        void OnDelete(object sender, EventArgs e)
+        static void Delete(ContentPage contentPage, string s, Button button, Func<int, Task<int>> func)
         {
-            var button = (Button)sender;
-
-
-            if (int.TryParse(m_min_mark_value.Text, out int minMark) && minMark >= 0)
+            if (int.TryParse(s, out int minMark) && minMark >= 0)
             {
                 button.IsEnabled = false;
 
-                DataBase.Delete(minMark)
+                func(minMark)
                     .ContinueWith((t) =>
                     {
                         MainThread.BeginInvokeOnMainThread(() =>
@@ -37,11 +34,11 @@ namespace Pixiv
                             {
                                 int n = t.Result;
 
-                                DisplayAlert("消息", $"删除成功，删掉{n}项数据", "确定");
+                                contentPage.DisplayAlert("消息", $"删除成功，删掉{n}项数据", "确定");
                             }
                             catch (AggregateException e)
                             {
-                                DisplayAlert("消息", e.InnerException.Message, "确定");
+                                contentPage.DisplayAlert("消息", e.InnerException.Message, "确定");
                             }
                             finally
                             {
@@ -54,17 +51,16 @@ namespace Pixiv
             }
             else
             {
-                DisplayAlert("消息", "输入错误", "确定");
+                contentPage.DisplayAlert("消息", "输入错误", "确定");
             }
         }
 
-        void OnVacuum(object sender, EventArgs e)
+        static void Vacuum(ContentPage contentPage, Button button, Func<Task> func)
         {
-            var button = (Button)sender;
-
+           
             button.IsEnabled = false;
 
-            DataBase.Vacuum()
+            func()
                 .ContinueWith((t) =>
                 {
                     MainThread.BeginInvokeOnMainThread(() =>
@@ -73,11 +69,11 @@ namespace Pixiv
                         {
                             t.Wait();
 
-                            DisplayAlert("消息", $"紧缩成功", "确定");
+                            contentPage.DisplayAlert("消息", $"紧缩成功", "确定");
                         }
                         catch (AggregateException e)
                         {
-                            DisplayAlert("消息", e.InnerException.Message, "确定");
+                            contentPage.DisplayAlert("消息", e.InnerException.Message, "确定");
                         }
                         finally
                         {
@@ -85,6 +81,26 @@ namespace Pixiv
                         }
                     });
                 });
+        }
+
+        private void OnDeletePixivDataBase(object sender, EventArgs e)
+        {
+            Delete(this, m_min_value.Text, (Button)sender, DataBase.Delete);
+        }
+
+        private void OnDeleteImageDataBase(object sender, EventArgs e)
+        {
+            Delete(this, m_min_value.Text, (Button)sender, ImgDataBase.Small.Delete);
+        }
+
+        private void OnVacuumPixivDataBase(object sender, EventArgs e)
+        {
+            Vacuum(this, (Button)sender, DataBase.Vacuum);
+        }
+
+        private void OnVacuumImageDataBase(object sender, EventArgs e)
+        {
+            Vacuum(this, (Button)sender, ImgDataBase.Small.Vacuum);
         }
     }
 }

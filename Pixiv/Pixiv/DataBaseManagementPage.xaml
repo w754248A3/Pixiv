@@ -2,16 +2,29 @@
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="Pixiv.DataBaseManagementPage">
-    <StackLayout>
-        <StackLayout Orientation="Horizontal">
-            <Label Text="最小收藏"></Label>
-            <Entry x:Name="m_min_mark_value"
-                       WidthRequest="200"
-                       Keyboard="Numeric"></Entry>
-        </StackLayout>
-        <Button Text="删除"
-                Clicked="OnDelete"></Button>
-        <Button Text="紧缩数据库"
-                Clicked="OnVacuum"></Button>
-    </StackLayout>
+    <TableView Intent="Settings">
+        <TableRoot>
+            <TableSection>
+                <EntryCell x:Name="m_min_value"
+                           Label="最小阈值"
+                           Keyboard="Numeric"></EntryCell>
+                <ViewCell>
+                    <Button Text="删除收藏数据库的最小收藏项"
+                            Clicked="OnDeletePixivDataBase"></Button>
+                </ViewCell>
+                <ViewCell>
+                    <Button Text="删除图片数据库的最小引用项"
+                            Clicked="OnDeleteImageDataBase"></Button>
+                </ViewCell>
+                <ViewCell>
+                    <Button Text="紧缩收藏数据库"
+                            Clicked="OnVacuumPixivDataBase"></Button>
+                </ViewCell>
+                <ViewCell>
+                    <Button Text="紧缩图片数据库"
+                            Clicked="OnVacuumImageDataBase"></Button>
+                </ViewCell>
+            </TableSection>
+        </TableRoot>
+    </TableView>
 </ContentPage>

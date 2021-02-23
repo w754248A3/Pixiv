@@ -186,13 +186,13 @@ namespace Pixiv
         void ViewImagePage(ListImageBindData data)
         {
 
-            var task = Task.Run(() => m_info.LoadBigImg.Load(data.Path));
+            var task = m_info.LoadBigImg.LoadAsync(data.Path);
 
             void action()
             {
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    m_info.LoadBigImg.Add(data.Path);
+                    m_info.LoadBigImg.SaveAsync(task);
                 });
             }
 

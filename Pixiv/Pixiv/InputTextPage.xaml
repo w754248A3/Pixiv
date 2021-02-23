@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://xamarin.com/schemas/2014/forms"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="Pixiv.InputTextPage">
+             x:Class="Pixiv.InputTextPage"
+             xmlns:data="clr-namespace:Pixiv">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*"></RowDefinition>
@@ -12,18 +13,18 @@
                         SelectionMode="Single"
                         SelectionChanged="OnSelectChanged">
             <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="x:String">
-                    <SwipeView>
+                <DataTemplate x:DataType="data:InputTextPageBindingData">
+                    <SwipeView Threshold="50">
                         <SwipeView.RightItems>
                             <SwipeItems>
                                 <SwipeItem Text="Delete"
                                            BackgroundColor="LightPink"
-                                           Command="{Binding Source={x:Reference m_collectionView}, Path=BindingContext.DeleteCommand}"
+                                           Command="{Binding Command}"
                                            CommandParameter="{Binding}" />  
                             </SwipeItems>
                         </SwipeView.RightItems>
-                        <Label Text="{Binding}"
-                               HeightRequest="30"></Label>
+                        <Label Text="{Binding Text}"
+                               HeightRequest="60"></Label>
                     </SwipeView>
                 </DataTemplate>
             </CollectionView.ItemTemplate>

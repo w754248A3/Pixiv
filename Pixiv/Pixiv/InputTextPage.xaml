@@ -7,29 +7,22 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="*"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
+            <RowDefinition Height="Auto"></RowDefinition>
         </Grid.RowDefinitions>
         <CollectionView Grid.Row="0"
                         x:Name="m_collectionView"
                         SelectionMode="Single"
                         SelectionChanged="OnSelectChanged">
             <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="data:InputTextPageBindingData">
-                    <SwipeView Threshold="50">
-                        <SwipeView.RightItems>
-                            <SwipeItems>
-                                <SwipeItem Text="Delete"
-                                           BackgroundColor="LightPink"
-                                           Command="{Binding Command}"
-                                           CommandParameter="{Binding}" />  
-                            </SwipeItems>
-                        </SwipeView.RightItems>
-                        <Label Text="{Binding Text}"
-                               HeightRequest="60"></Label>
-                    </SwipeView>
+                <DataTemplate x:DataType="x:String">
+                    <Label Text="{Binding}"></Label>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
         </CollectionView>
-        <Grid Grid.Row="1">
+        <Button Grid.Row="1"
+                x:Name="m_deleteSelectItem"
+                Text="删除选中项"></Button>
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"></ColumnDefinition>
                 <ColumnDefinition Width="*"></ColumnDefinition>

@@ -47,19 +47,6 @@ namespace Pixiv
         public TaskCompletionSource<InputTextPageResult> TaskSource { get; }
     }
 
-    public sealed class InputTextPageBindingData
-    {
-        public InputTextPageBindingData(string text, Command<InputTextPageBindingData> command)
-        {
-            Text = text;
-            Command = command;
-        }
-
-        public string Text { get; set; }
-
-        public Command<InputTextPageBindingData> Command { get; set; }
-    }
-
     [XamlCompilation(XamlCompilationOptions.Compile)]
     public partial class InputTextPage : ContentPage
     {
@@ -81,20 +68,18 @@ namespace Pixiv
 
             m_entry.Text = info.Item;
 
-            var collection = new ObservableCollection<InputTextPageBindingData>();
+            var collection = new ObservableCollection<string>(info.List.ToHashSet());
 
 
             m_collectionView.ItemsSource = collection;
 
-            var command = new Command<InputTextPageBindingData>((item) =>
+            m_deleteSelectItem.Clicked += (obj, e) =>
             {
-                collection.Remove(item);
-            },
-            (item) => true);
-
-            var list = info.List.ToHashSet().Select((s) => new InputTextPageBindingData(s, command)).ToArray();
-
-            Array.ForEach(list, (item) => collection.Add(item));
+                if (m_collectionView.SelectedItem is string s)
+                {
+                    collection.Remove(s);
+                }
+            };
         }
 
         void OnInputOK(object sender, EventArgs e)
@@ -104,7 +89,7 @@ namespace Pixiv
             m_info.TaskSource.TrySetResult(
                 new InputTextPageResult(
                     result,
-                    m_collectionView.ItemsSource.OfType<InputTextPageBindingData>().Select((item) => item.Text).Append(result).ToHashSet().ToArray()));
+                    m_collectionView.ItemsSource.OfType<string>().Append(result).ToHashSet().ToArray()));
 
             Navigation.PopModalAsync();
         }
@@ -118,9 +103,9 @@ namespace Pixiv
 
         void OnSelectChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (m_collectionView.SelectedItem is InputTextPageBindingData item)
+            if (m_collectionView.SelectedItem is string s)
             {
-                m_entry.Text = item.Text;
+                m_entry.Text = s;
             }
         }
     }

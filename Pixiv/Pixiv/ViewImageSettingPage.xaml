@@ -13,15 +13,19 @@
                 <TableSection>
                     <EntryCell x:Name="m_min_id_value"
                                Label="最小ID"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_max_id_value"
                                Label="最大ID"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_min_mark_value"
                                Label="最小收藏"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_max_mark_value"
                                Label="最大收藏"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <ViewCell>
                         <StackLayout Orientation="Horizontal">
@@ -39,9 +43,11 @@
                     </ViewCell>
                     <EntryCell x:Name="m_offset_value"
                                Label="偏移"
+                               Placeholder="必须填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_view_column_value"
                                Label="显示列数"
+                               Placeholder="必须填"
                                Keyboard="Numeric"></EntryCell>
                 </TableSection>
             </TableRoot>

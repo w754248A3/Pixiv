@@ -15,15 +15,19 @@
                 <TableSection>
                     <EntryCell x:Name="m_start_id_value"
                                Label="开始ID"
+                               Placeholder="必须填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_end_id_value"
                                Label="结束ID"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_task_count_value"
                                Label="任务个数"
+                               Placeholder="必须填"
                                Keyboard="Numeric"></EntryCell>
                     <EntryCell x:Name="m_max_ex_value"
                                Label="错误响应终止个阈值"
+                               Placeholder="可以不填"
                                Keyboard="Numeric"></EntryCell>
                     <ViewCell>
                         <StackLayout Orientation="Horizontal">

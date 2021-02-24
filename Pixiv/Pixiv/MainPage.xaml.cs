@@ -2089,29 +2089,35 @@ namespace Pixiv
 
     public partial class MainPage : ContentPage
     {
-        
-
-        const string ROOT_PATH = "/storage/emulated/0/pixiv/";
-
-        const string BASE_PATH = ROOT_PATH + "database/";
-      
-        const string IMG_PATH = ROOT_PATH + "img/";
-
-       
-        readonly LoadBigImg m_download = new LoadBigImg(IMG_PATH, ConstInfo.BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, ConstInfo.BIG_IMG_TIMEOUT));
+        LoadBigImg m_download;
 
         readonly CrawlingSettingPage m_crawlingPage = new CrawlingSettingPage();
+
+        static void CreatePath(string rootPath, out string database_path, out string img_save_path)
+        {
+            var app_folder_path = Path.Combine(rootPath, "pixiv");
+
+            Directory.CreateDirectory(app_folder_path);
+
+            database_path = Path.Combine(app_folder_path, "database");
+
+            Directory.CreateDirectory(database_path);
+
+            img_save_path = Path.Combine(app_folder_path, "img");
+
+            Directory.CreateDirectory(img_save_path);
+        }
 
         public MainPage(MainPageInfo info)
         {
             InitializeComponent();
 
 
-            Log.Write("Init", Init());
+            Log.Write("Init", Init(info));
 
         }
 
-        async Task Init()
+        async Task Init(MainPageInfo info)
         {
            
             var p = await Permissions.RequestAsync<Permissions.StorageWrite>();
@@ -2126,16 +2132,13 @@ namespace Pixiv
             
             DeviceDisplay.KeepScreenOn = true;
 
+            CreatePath(info.RootPath, out string database_path, out string img_save_path);
 
-            Directory.CreateDirectory(ROOT_PATH);
-
-            Directory.CreateDirectory(IMG_PATH);
-
-
-
-            DataBase.Init(BASE_PATH);
+            DataBase.Init(database_path);
             
-            ImgDataBase.Init(BASE_PATH);
+            ImgDataBase.Init(database_path);
+
+            m_download = new LoadBigImg(img_save_path, ConstInfo.BIG_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, ConstInfo.BIG_IMG_TIMEOUT));
 
             Log.Write("viewtext", InitViewText());
 

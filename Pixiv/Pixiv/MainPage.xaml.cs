@@ -638,9 +638,13 @@ namespace Pixiv
     {
         public static ImgDataBase Small { get; set; }
 
+        public static ImgDataBase OriginalImage { get; set; }
+
         public static void Init(string path)
         {
             Small = Create(path, "Small");
+
+            OriginalImage = Create(path, nameof(OriginalImage));
         }
 
 
@@ -1474,6 +1478,21 @@ namespace Pixiv
 
     public sealed class LoadBigImg
     {
+        public sealed class LoadResult
+        {
+            public LoadResult(Task<byte[]> task, Action save)
+            {
+                Task = task;
+                Save = save;
+            }
+
+            public Task<byte[]> Task { get; }
+
+
+
+            public Action Save { get; }
+
+        }
 
         sealed class LoadBigImgCount
         {
@@ -1525,32 +1544,46 @@ namespace Pixiv
             m_client = (uri, tokan) => buildFunc((tokan) => func(uri, tokan), tokan);
         }
 
-        async Task SaveImage(byte[] buffer)
+        async Task SaveImage(int id, byte[] buffer)
         {
-            string name = Path.Combine(m_basePath, Path.GetRandomFileName() + ".png");
+            string name = Path.Combine(m_basePath, id + ".png");
 
             using var file = new FileStream(name, FileMode.Create, FileAccess.Write, FileShare.None, 1, true);
             await file.WriteAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
         }
 
-        public Task<byte[]> LoadAsync(string path)
+        public LoadResult LoadAsync(ListImageBindData data)
         {
 
-            return Task.Run(() =>
+            var task = Task.Run(async () =>
             {
+                
+                var imgData = await ImgDataBase.OriginalImage.Get(data.Id).ConfigureAwait(false);
 
+               
+                if (imgData is null)
+                {
+                    Uri uri = CreatePixivData.GetOriginalUri(data.Path);
 
-                Uri uri = CreatePixivData.GetOriginalUri(path);
+                    byte[] buffer = await m_client(uri, CancellationToken.None).ConfigureAwait(false);
 
-                return m_client(uri, CancellationToken.None);
+                    await ImgDataBase.OriginalImage.Add(new ImgData(data.Id, buffer)).ConfigureAwait(false);
 
+                    return buffer;
+                }
+                else
+                {
+                    return imgData.Img;
+                }
             });
 
+
+            return new LoadResult(task, () => SaveAsync(data.Id, task));
         }
 
 
 
-        async Task LoadCount(Task<byte[]> task)
+        async Task LoadCount(int id, Task<byte[]> task)
         {
             try
             {
@@ -1559,7 +1592,7 @@ namespace Pixiv
                 var buffer = await task.ConfigureAwait(false);
 
 
-                await SaveImage(buffer).ConfigureAwait(false);
+                await SaveImage(id, buffer).ConfigureAwait(false);
 
             }
             finally
@@ -1570,9 +1603,9 @@ namespace Pixiv
 
 
 
-        public void SaveAsync(Task<byte[]> task)
+        void SaveAsync(int id, Task<byte[]> task)
         {
-            Task.Run(() => LoadCount(task));
+            Task.Run(() => LoadCount(id, task));
         }
     }
 

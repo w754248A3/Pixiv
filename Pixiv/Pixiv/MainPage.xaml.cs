@@ -1979,6 +1979,13 @@ namespace Pixiv
             set => Preferences.Set(nameof(ViewColumn), value);
         }
 
+        public static int AddItemTimeSpan
+        {
+            get => Preferences.Get(nameof(AddItemTimeSpan), 1);
+
+            set => Preferences.Set(nameof(AddItemTimeSpan), value);
+        }
+
         public static int Offset
         {
             get => Preferences.Get(nameof(Offset), 0);
@@ -2099,8 +2106,6 @@ namespace Pixiv
 
 
         public const int IMG_VIEW_COUNT = 400;
-
-        public const int IMG_TIMESPAN = 1;
 
         public const int IMG_FLUSH_TIMESPAN = 6;
 

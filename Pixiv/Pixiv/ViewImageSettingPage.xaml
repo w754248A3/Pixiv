@@ -49,6 +49,10 @@
                                Label="显示列数"
                                Placeholder="必须填"
                                Keyboard="Numeric"></EntryCell>
+                    <EntryCell x:Name="m_add_img_timespan_value"
+                               Label="添加新项的时间间隔(秒)"
+                               Placeholder="必须填"
+                               Keyboard="Numeric"></EntryCell>
                 </TableSection>
             </TableRoot>
         </TableView>

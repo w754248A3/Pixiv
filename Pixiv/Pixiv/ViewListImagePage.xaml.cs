@@ -99,7 +99,7 @@ namespace Pixiv
 
                 m_preload = Preload.Create(InputData.CreateSelectFunc(), ConstInfo.PIXIVDATA_PRELOAD_COUNT, ConstInfo.SMALL_IMG_PERLOAD_COUNT, ConstInfo.SMALL_IMG_RESPONSE_SIZE, new TimeSpan(0, 0, ConstInfo.SMALL_IMG_TIMEOUT));
 
-                var t = m_preload.While((data) => MainThread.InvokeOnMainThreadAsync(() => SetImage(data)));
+                var t = m_preload.While((data) => MainThread.InvokeOnMainThreadAsync(() => SetImage(data, InputData.AddItemTimeSpan)));
 
                 Log.Write("reload", t);
             });
@@ -192,9 +192,9 @@ namespace Pixiv
 
             var info = new ViewImagePageInfo(data.Buffer, result.Task, result.Save);
 
-            info.Task.ContinueWith((t) => m_preload.SetNotWait());
+            info.Task.ContinueWith((t) => m_preload.SetNotWaitModePage());
 
-            m_preload.SetWait();
+            m_preload.SetWaitModePage();
 
 
 
@@ -203,7 +203,7 @@ namespace Pixiv
 
 
 
-        TimeSpan SetImage(ListImageBindData date)
+        TimeSpan SetImage(ListImageBindData date, int addItemTimeSpan)
         {
 
             if (m_imageSources.Count == ConstInfo.IMG_VIEW_COUNT)
@@ -220,14 +220,14 @@ namespace Pixiv
 
                 m_imageSources.Add(date);
 
-                return new TimeSpan(0, 0, ConstInfo.IMG_TIMESPAN);
+                return new TimeSpan(0, 0, addItemTimeSpan);
 
             }
             else
             {
                 m_imageSources.Add(date);
 
-                return new TimeSpan(0, 0, ConstInfo.IMG_TIMESPAN);
+                return new TimeSpan(0, 0, addItemTimeSpan);
 
             }
 

@@ -53,6 +53,8 @@ namespace Pixiv
             m_offset_value.Text = InputData.Offset.ToString();
 
             m_view_column_value.Text = InputData.ViewColumn.ToString();
+
+            m_add_img_timespan_value.Text = InputData.AddItemTimeSpan.ToString();
         }
 
         bool SetInit()
@@ -76,7 +78,7 @@ namespace Pixiv
 
                 InputData.ViewColumn = InputData.AsNumber(m_view_column_value.Text, 1);
 
-
+                InputData.AddItemTimeSpan = InputData.AsNumber(m_add_img_timespan_value.Text, 1);
 
                 return true;
             }
